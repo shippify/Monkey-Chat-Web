@@ -1,14 +1,68 @@
+
 <!DOCTYPE html>
 <!DOCTYPE html>
 <html>
   <head>
-    <title id="mky-title">Demo React</title>
+    <title>Demo React</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0" />
-    <link rel="stylesheet" type="text/css" href="styles/style.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
   </head>
   <body>
+  	<div>
+
+      <!--ID:
+      Group Id :
+  		<input id="monkey_id" style="width:400px;"  value="" />
+  		<button  onclick="addUserConversation();">Add User</button>
+
+      <input id="group_id" style="width:400px;"  value="" />
+      <button type="button" name="button" onclick="">Create Group</button>-->
+  	</div>
     <div id="my-chat"></div>
   	<script type="text/javascript" src="bundle/index.js"></script>
+
   </body>
+
+
+  <script type="text/javascript">
+
+    // monkeyId:'iprh232a2iumaf3iovl5wmi'
+    initChat({ name:'Luis Loaiza', monkeyId:'ife4c0qdb0dopbg538lg14i'});
+
+	  function addUserConversation(){
+
+	  	var group_id = $("#monkey_id").val();
+	  	console.log(" Adding User to conversation");
+	  	initConversation({ firstname:'Usuario', lastname:'Testing', id:11293 });
+	  }
+
+    window.addEventListener('message',function(event){
+      if(typeof event.data.type!=='undefined' && event.data.type!=null && event.data.type==='ShowShipperMap'){
+        var list  = event.data.conversation_id.split(":");
+        var shipper_id = list[list.length-1];
+        console.log(" Shipper ID :",shipper_id);
+      }
+    })
+
+    function createGroupMonkey(){
+      var id = $("#group_id").val()
+      var members = ['ipiswkx42cu3uy1fbn0qw7b9','ipitteya5dc1nt165ct5u3di'];
+      var groupInfo = { name:'Shippify Shipper' }
+      var optionalPush = "test";
+      var optionalId = `G:inqen96qeemcv0n8byhnnrk9-shipsupp:${id}`;
+      createGroup(members,groupInfo,optionalId);
+    }
+    //{ name:"", monkeyId:"", urlAvatar:""}
+  </script>
+
+  <style>
+      .mky-rightside, .mky-wrapper-in{
+        transition:none !important ;
+      }
+      .mky-conversation-selected-status{
+        color: #DDD !important;
+      }
+  </style>
+
 </html>

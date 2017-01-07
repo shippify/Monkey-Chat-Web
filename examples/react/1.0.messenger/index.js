@@ -2,9 +2,11 @@ import React, { Component } from 'react'
 import ReactDOM from 'react-dom'
 import { MonkeyUI, isConversationGroup } from 'react-monkey-ui'
 import Monkey from 'monkey-sdk'
+import * as vars from './utils/monkey-const.js'
 import { applyMiddleware, createStore, compose } from 'redux'
 import { reducer, actions } from 'redux-monkey-chat'
-import * as vars from './utils/monkey-const.js'
+
+const monkey = new Monkey ();
 
 const middlewares = [];
 if (process.env.NODE_ENV === 'development') {
@@ -12,20 +14,44 @@ if (process.env.NODE_ENV === 'development') {
 	const logger = createLogger();
 	middlewares.push(logger);
 }
-const monkey = new Monkey ();
-const store = compose(applyMiddleware(...middlewares))(createStore)(reducer, {conversations: {}, users: {userSession: monkey.getUser()}});
 const OFFLINE = 0;
 const DISCONNECTED = 1;
 const CONNECTING = 2;
 const CONNECTED = 3;
 const SYNCING = 4;
-const CONVERSATIONS_LOAD = 15;
 const MESSAGES_LOAD = 20;
-const colorUsers = ['#6f067b','#00a49e','#b3007c','#b4d800','#e20068','#00b2eb','#ec870e','#84b0b9','#3a6a74','#bda700','#826aa9','#af402a','#733610','#020dd8','#7e6565','#cd7967','#fd78a7','#009f62','#336633','#e99c7a','#000000'];
+const CONVERSATIONS_LOAD = 30;
+const store = compose(applyMiddleware(...middlewares))(createStore)(reducer, {conversations: {}, users: {userSession: monkey.getUser()}});
+
+const colorUsers = ["#6f067b","#00a49e","#b3007c","#b4d800","#e20068","#00b2eb","#ec870e","#84b0b9","#3a6a74","#bda700","#826aa9","#af402a","#733610","#020dd8","#7e6565","#cd7967","#fd78a7","#009f62","#336633","#e99c7a","#000000"];
 var conversationSelectedId = 0;
 var monkeyChatInstance;
 var mky_focused = true;
-var pendingConversations;
+
+
+/** functions set **/
+
+var count=0;
+var typing = false;
+var timeout = undefined;
+
+var unreadMessagesByConversation = { };
+
+window.initChat = function(user){
+	monkey.close();
+	monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user,null,false, vars.MONKEY_DEBUG_MODE, false,true,function(error,success){
+
+		if(error){
+			console.log(" Error :",JSON.stringify(error));
+		}
+	});
+	render();
+}
+
+window.getMonkey = function(){
+	return monkey;
+}
+/*****/
 
 class MonkeyChat extends Component {
 	constructor(props){
@@ -34,19 +60,30 @@ class MonkeyChat extends Component {
 			conversationId: undefined,
 			viewLoading: false,
 			conversationsLoading: true,
-			isLoadingConversations: false,
-			panelParams: {},
+			panelParams : {},
 			connectionStatus: 0,
-			messageSelectedInfo: null
+			isLoadingConversations: false
 		}
 
 		this.view = {
-			type: 'fullscreen'
-		}	
-		
-		this.handleUserSession = this.handleUserSession.bind(this);
+			type: 'rightside',
+			data: {
+				width: '350px',
+				height: '92%'
+			}
+		}
+
+		this.styles = {
+			toggleColor: "rgb(225,79,80)",
+			toggleTextColor: "rgb(255,255,255)",
+			bubbleColorOut:'#ef404b',
+			bubbleTextColorOut :'#FFFFFF',
+			bubbleColorIn:'#e6e6e6',
+			bubbleTextColorIn :'#666666',
+			tabTextColor: "white"
+		}
+
 		this.handleUserSessionLogout = this.handleUserSessionLogout.bind(this);
-		this.handleUserSessionEdit = this.handleUserSessionEdit.bind(this);
 		this.handleConversationOpened = this.handleConversationOpened.bind(this);
 		this.handleConversationClosed = this.handleConversationClosed.bind(this);
 		this.handleConversationLoadInfo = this.handleConversationLoadInfo.bind(this);
@@ -58,58 +95,50 @@ class MonkeyChat extends Component {
 		this.handleNotifyTyping = this.handleNotifyTyping.bind(this);
 		this.handleLoadConversations = this.handleLoadConversations.bind(this);
 		this.handleRenameGroup = this.handleRenameGroup.bind(this);
-		this.handleConversationExitButton = this.handleConversationExitButton.bind(this);
 		this.handleMakeMemberAdmin = this.handleMakeMemberAdmin.bind(this);
 		this.handleRemoveMember = this.handleRemoveMember.bind(this);
-		
-		/* options */
+		/* Shippify handle */
+		this.initConversation = this.initConversation.bind(this);
+		this.handleConversationIdOpened = this.handleConversationIdOpened.bind(this);
+		this.handleGroupInfo = this.handleGroupInfo.bind(this);
+
+		/* Options */
 		this.handleSortConversations = this.handleSortConversations.bind(this);
 		this.handleConversationDelete = this.handleConversationDelete.bind(this);
-		this.handleConversationExit = this.handleConversationExit.bind(this);
-		this.handleMessageOptionsOutgoing = this.handleMessageOptionsOutgoing.bind(this);
-		this.handleSelectMessage = this.handleSelectMessage.bind(this);
+
+		this.handleReconnect = this.handleReconnect.bind(this);
+
 		this.options = {
 			conversation: {
 				onSort: this.handleSortConversations,
 				optionsToDelete: {
-					onExitGroup: this.handleConversationExit,
+					onExitGroup: undefined,
 					onDelete: this.handleConversationDelete
 				}
 			},
 			message: {
 				optionsToIncoming: undefined,
-				optionsToOutgoing: this.handleMessageOptionsOutgoing
+				optionsToOutgoing: undefined
 			}
 		}
-		
 	}
 
-	componentWillMount() {
-		if(monkey.getUser() != null){
-			this.setState({viewLoading: true});
-			var user = monkey.getUser();
-			monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user, [], false, vars.MONKEY_DEBUG_MODE, false, false, (error, success) => {
-				this.setState({viewLoading: false});
-			});
-		}
-	}
-	
+
 	componentWillReceiveProps(nextProps) {
 		if(nextProps.store.users.userSession && this.state.viewLoading){ // handle stop loading when found user session
 			this.setState({viewLoading: false});
 		}
 	}
-	
+
 	render() {
 		return (
 			<MonkeyUI view={this.view}
+			    styles={this.styles}
 				options={this.options}
 				viewLoading={this.state.viewLoading}
 				conversationsLoading={this.state.conversationsLoading}
 				userSession={this.props.store.users.userSession}
-				onUserSession={this.handleUserSession}
 				onUserSessionLogout={this.handleUserSessionLogout}
-				onUserSessionEdit = {this.handleUserSessionEdit}
 				conversations={this.props.store.conversations}
 				conversation={this.props.store.conversations[this.state.conversationId]}
 				onConversationOpened={this.handleConversationOpened}
@@ -119,83 +148,40 @@ class MonkeyChat extends Component {
 				onMessage={this.handleMessage}
 				onMessageDownloadData={this.handleMessageDownloadData}
 				onMessageGetUser={this.handleMessageGetUser}
-				messageLoadInfo = {this.state.messageSelectedInfo}
 				panelParams = {this.state.panelParams}
 				asidePanelParams = {this.state.panelParams}
 				onNotifyTyping = {this.handleNotifyTyping}
 				onLoadMoreConversations = {this.handleLoadConversations}
 				isLoadingConversations = {this.state.isLoadingConversations}
-				connectionStatus = {this.state.connectionStatus}/>
+				connectionStatus = {this.state.connectionStatus} />
 		)
 	}
-	
+
 	/* User */
-	
-	handleUserSession(user) {
-		this.setState({viewLoading: true});
-		user.monkeyId = vars.userTest;
-		monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user, [], false, vars.MONKEY_DEBUG_MODE, false, false, (error, success) => {
-			this.setState({viewLoading: false});
-			if(error){
-				monkey.logout();
-				store.dispatch(actions.deleteUserSession());
-				store.dispatch(actions.deleteConversations());
-				window.errorMsg = 'Sorry, Unable to load your data. Please wait a few minutes before trying again.'
-			}else{
-				store.dispatch(actions.addUserSession(user));	
-			}
-		});
-	}
 
 	handleUserSessionLogout() {
 		monkey.logout();
 		store.dispatch(actions.deleteUserSession());
 		store.dispatch(actions.deleteConversations());
 	}
-	
-	handleUserSessionEdit(newName){
-		if(newName.length <= 1){
-			return;
-		}
-		store.dispatch(actions.updateUserSession({ name: newName }))
-		monkey.editUserInfo({ name: newName }, function(err, data){
-			if(err){
-				return;
-			}
-		});
-	}
-	
-	/* Conversation */
-	
-	handleSortConversations(conversation1, conversation2) {
-		let noLastMessage1, noLastMessage2;
-		if( !conversation1.messages || Object.keys(conversation1.messages).length == 0 || !conversation1.lastMessage || conversation1.messages[conversation1.lastMessage] == null )
-			noLastMessage1 = true;
-			        
-	    if( !conversation2.messages || Object.keys(conversation2.messages).length == 0 || !conversation2.lastMessage || conversation2.messages[conversation2.lastMessage] == null )
-			noLastMessage2 = true;
 
-		if(noLastMessage1 && noLastMessage2){
-			return conversation2.lastModified - conversation1.lastModified;
-	    }else if(noLastMessage2){
-		    return conversation2.lastModified - Math.max(conversation1.messages[conversation1.lastMessage].datetimeCreation, conversation1.lastModified);
-	    }else if(noLastMessage1){
-			return Math.max(conversation2.messages[conversation2.lastMessage].datetimeCreation, conversation2.lastModified) - conversation1.lastModified;
-	    }else{
-			return Math.max(conversation2.messages[conversation2.lastMessage].datetimeCreation, conversation2.lastModified) - Math.max(conversation1.messages[conversation1.lastMessage].datetimeCreation, conversation1.lastModified);
-		}
+	/* Conversation */
+	handleSortConversations(conversation1, conversation2) {
+	    if( !conversation1.messages || Object.keys(conversation1.messages).length == 0 || !conversation1.lastMessage || conversation1.messages[conversation1.lastMessage] == null )
+	        return 1;
+	    if( !conversation2.messages || Object.keys(conversation2.messages).length == 0 || !conversation2.lastMessage || conversation2.messages[conversation2.lastMessage] == null )
+	        return -1;
+	    return conversation2.messages[conversation2.lastMessage].datetimeCreation - conversation1.messages[conversation1.lastMessage].datetimeCreation;
 	}
-	
+
 	handleConversationOpened(conversation) {
-		monkey.openConversation(conversation.id);
-		if(store.getState().conversations[conversationSelectedId] && store.getState().conversations[conversationSelectedId].unreadMessageCounter != 0){
-			if(conversationSelectedId != conversation.id){
-				store.dispatch(actions.updateConversationUnreadCounter(store.getState().conversations[conversationSelectedId], 0));
-			}
-			//store.dispatch(actions.updateConversationUnreadCounter(conversation, 0));
-		}
-		if(this.state.conversationId && conversation.id != conversationSelectedId){
-			monkey.closeConversation(this.state.conversationId);
+		monkey.sendOpenToUser(conversation.id);
+
+		if(store.getState().conversations[conversation.id] && conversation.id != conversationSelectedId && store.getState().conversations[conversation.id].unreadMessageCounter != 0){
+			const unread = store.getState().conversations[conversation.id].unreadMessageCounter;
+			count = count - unread;
+			setUnreadMessagesMainBadge(count);
+			store.dispatch(actions.updateConversationUnreadCounter(conversation, 0));
 		}
 		this.setState({conversationId: conversation.id});
 		conversationSelectedId = conversation.id;
@@ -205,14 +191,16 @@ class MonkeyChat extends Component {
 			conversation['description'] = members;
 			store.dispatch(actions.updateConversationStatus(conversation));
 		}
+
+		window.postMessage({ type:"ShowShipperMap", conversation_id: conversation.id },'*');
 	}
-	
+
 	handleConversationClosed() {
-		store.dispatch(actions.updateConversationUnreadCounter(store.getState().conversations[conversationSelectedId], 0));
+		monkey.closeConversation(conversationSelectedId);
 		this.setState({conversationId: 0});
 		conversationSelectedId = 0;
 	}
-	
+
 	handleConversationDelete(conversation, nextConversation, active, setConversationSelected) {
 		monkey.deleteConversation(conversation.id, (err, data) => {
 			if(!err){
@@ -232,32 +220,11 @@ class MonkeyChat extends Component {
 		});
 		monkey.closeConversation(conversation.id);
 	}
-	
-	handleConversationExit(conversation, nextConversation, active, setConversationSelected) {
-		monkey.removeMemberFromGroup(conversation.id, store.getState().users.userSession.id, (err, data) => {
-			if(!err){
-				if(nextConversation){
-					monkey.sendOpenToUser(nextConversation.id);
-					if(active){
-						conversationSelectedId = nextConversation.id;
-						this.setState({conversationId: nextConversation.id});
-					}
-				}else{
-					if(active){
-						conversationSelectedId = 0;
-						this.setState({conversationId: undefined});
-					}
-				}
-				store.dispatch(actions.deleteConversation(conversation));
-			}
-			setConversationSelected();
-		});
-	}
-	
+
 	handleLoadConversations(timestamp){
 		loadConversations(timestamp/1000);
 	}
-	
+
 	handleConversationLoadInfo(){
 		var objectInfo = {};
 		var userIsAdmin = false;
@@ -265,17 +232,14 @@ class MonkeyChat extends Component {
 		let users = store.getState().users;
 		let conversations = store.getState().conversations;
 		let conversation = store.getState().conversations[conversationSelectedId];
-
 		objectInfo.name = conversation.name;
 		objectInfo.avatar = conversation.urlAvatar;
-
 		if(isConversationGroup(conversationSelectedId)){
 			conversation.members.forEach( (member) => {
 				if(!member){
 					return;
 				}
 				let user = users[member];
-				
 				if(typeof conversation.online == 'boolean'){
 					if(!conversation.online){
 						user.description = 'Offline';
@@ -283,48 +247,39 @@ class MonkeyChat extends Component {
 				}else{
 					user.description = (conversation.online.indexOf(user.id) > -1 || users.userSession.id == user.id) ? 'Online' : 'Offline'
 				}
-
 				if(conversation.admin && conversation.admin.indexOf(user.id) > -1){
-					user.rol = 'Admin';
+					user.rol = "Admin";
 					if(user.id == users.userSession.id){
 						userIsAdmin = true;
 					}
 				}else{
 					user.rol = null;
 				}
-
 				objectInfo.users.push(user);
 			})
-			objectInfo.title = 'Group Info';
-			objectInfo.subTitle = 'Participants';
-
-			if(userIsAdmin){
+			objectInfo.title = "Group Info";
+			objectInfo.subTitle = "Participants";
+			if(conversation.admin && conversation.admin.indexOf(users.userSession.id) > -1){
 				objectInfo.actions = [
-					{action: 'Delete Member', func: this.handleRemoveMember, confirm: true}, 
-					{action: 'Make Admin', func: this.handleMakeMemberAdmin, confirm: true}
+					{action : 'Delete Member', func : this.handleRemoveMember, confirm : true},
+					{action : 'Make Admin', func : this.handleMakeMemberAdmin, confirm : true}
 				]
 				objectInfo.canAdd = false;
 				objectInfo.renameGroup = this.handleRenameGroup;
 			}
-			
-			objectInfo.button = {
-				text : 'Exit Group',
-				func : this.handleConversationExitButton,
-			}
-			
 		}else{
-			objectInfo.title = 'User Info';
-			objectInfo.subTitle = 'Conversations With ' + conversation.name;
+			objectInfo.title = "User Info";
+			objectInfo.subTitle = "Conversations With " + conversation.name;
 			Object.keys(conversations).forEach(key => {
 				if(conversations[key].members && conversations[key].members.indexOf(conversation.id) > -1){
-					objectInfo.users.push({avatar: conversations[key].urlAvatar, name: conversations[key].name, description: conversations[key].members.length + ' Loaded Messages'})
+					objectInfo.users.push({avatar : conversations[key].urlAvatar, name : conversations[key].name, description : conversations[key].members.length + " Loaded Messages"})
 				}
 			})
 		}
-		
+
 		return objectInfo;
 	}
-	
+
 	handleConversationRemove(conversationId) {
 		let conversations = store.getState().conversations;
 		let conversation = conversations[conversationId];
@@ -348,95 +303,157 @@ class MonkeyChat extends Component {
 		}
 		store.dispatch(actions.deleteConversation(conversation));
 	}
-	
-	handleRenameGroup(conversationId, newName){
-		if(newName.length <= 3){
-			return;
-		}
-		let conversation = store.getState().conversations[conversationId];
-		if(!conversation){
-			return;
-		}
-		monkey.editGroupInfo(conversation.id, {name: newName}, function(err, data){
-			if(err){
-				return;
-			}
-			store.dispatch(actions.updateConversationName(conversation, data.name));
-		});
-	}
-	
-	handleConversationExitButton(conversationId) {
-		let conversations = store.getState().conversations;
-		let conversation = conversations[conversationId];
-		monkey.removeMemberFromGroup(conversation.id, store.getState().users.userSession.id, (err, data) => {
-			if(!err){
-				var nextConversationId = 0;
-				var conversationArray = this.createArray(conversations);
-				for(var i = 0; i < conversationArray.length; i++){
-					if(conversationArray[i].id == conversation.id){
-						if(conversationArray[i+1]){
-							nextConversationId = conversationArray[i+1].id
-						}else if(conversationArray[i-1]){
-							nextConversationId = conversationArray[i-1].id
-						}
-						break;
-					}
-				}
-				monkey.openConversation(conversation.id);
-				this.setState({conversationId: nextConversationId});
-				conversationSelectedId = nextConversationId;
-				store.dispatch(actions.deleteConversation(conversation));
-			}
-		});
-	}
-	
+
 	createArray(conversations) {
 		let conversationarray = [];
 		for(var x in conversations){
 		  conversationarray.push(conversations[x]);
 		}
 
-		if(typeof this.options.conversationSort == 'function'){
+		if(typeof this.options.conversationSort == "function"){
 			conversationarray.sort(this.options.conversationSort);
 		}
 		return conversationarray;
 	}
-	
+
+	handleRenameGroup(conversationId, newName){
+		if(newName.length <= 3){
+			return;
+		}
+
+		let conversation = store.getState().conversations[conversationId];
+		if(!conversation){
+			return;
+		}
+
+		monkey.editGroupInfo(conversation.id, {name : newName}, function(err, data){
+			if(err){
+				return;
+			}
+			store.dispatch(actions.updateConversationName(conversation,newName));
+		});
+	}
+
 	handleRemoveMember(memberId, conversationId){
 		monkey.removeMemberFromGroup(conversationId, memberId, null);
 	}
-	
+
 	handleMakeMemberAdmin(memberId, conversationId){
 		let conversation = store.getState().conversations[conversationId];
 		if(!conversation || (conversation.admin && conversation.admin.indexOf(memberId) > -1)){
 			return;
 		}
-		monkey.editGroupInfo(conversationId, {admin: conversation.admin + ',' + memberId}, function(err, data){
+		monkey.editGroupInfo(conversationId, {admin : conversation.admin + "," + memberId}, function(err, data){
 			if(err){
 				return;
 			}
+			console.log(data)
 			store.dispatch(actions.updateConversationAdmin(conversation, data.admin));
 		});
 	}
-	
+
 	handleShowConversationsLoading(value){
 		this.setState({conversationsLoading: value});
 	}
-	
+
+	initConversation(shipper){
+
+		const groupId = `G:${vars.MONKEY_APP_ID}-shipsupp:${shipper.id}`;
+		const userId = store.getState().users.userSession.id;
+
+		const conversation = store.getState().conversations[groupId];
+
+		console.log(" Group ID :",groupId);
+
+		if( typeof conversation!=='undefined' && conversation!=null ){
+			this.handleConversationIdOpened(groupId);
+			return;
+		}
+
+		monkey.getInfoById( groupId, (error,groupInfo) => {
+			if (error) {
+				console.log(" Error getInfoById",error);
+				return;
+			}
+
+			const shipper_info = groupInfo.members.filter( monkeyId => monkeyId==shipper.monkey_id );
+
+			console.log(" Shipper Info:",JSON.stringify(shipper_info));
+
+			if(typeof groupInfo.members==null || groupInfo.members.length==0 || shipper_info.length==0){
+				createShippifyGroup(shipper,(error,groupShippifyInfo) => {
+
+					if(error){
+						console.log(" Error to create Group")
+						return;
+					}
+
+					monkey.getInfoById( groupId, (error,groupInfo) => {
+
+						if(error){
+							console.log(" Error after create group getInfoById",error);
+							return;
+						}
+
+						this.handleGroupInfo(groupInfo,shipper);
+						return;
+					})
+				})
+			}else if(groupInfo.members.indexOf(userId)>-1){
+				console.log("MEMBERS CONVERSATION");
+				this.handleGroupInfo(groupInfo,shipper);
+				return;
+			}else{
+				console.log("ADD MEMBER TO GROUP");
+				monkey.addMemberToGroup(groupId,userId,null,null,(err,_groupInfo) => {
+					if(err){
+						console.log(" Error addMemberToGroup:",err);
+						return;
+					}
+
+					this.handleGroupInfo(_groupInfo,shipper);
+					return;
+				})
+			}
+		});
+	}
+
+	handleGroupInfo(groupInfo,shipper){
+
+		const groupName = (groupInfo.info)? groupInfo.info.name :`Shippify - ${shipper.firstname} ${shipper.lastname}`;
+		const avatar = (groupInfo.info)? groupInfo.info.avatar : null;
+
+		const conversation = defineConversation(groupInfo.group_id, null, groupName, avatar, groupInfo.members_info, groupInfo.members);
+		store.dispatch(actions.addConversation(conversation));
+		this.handleConversationOpened(conversation);
+
+	}
+
+	handleConversationIdOpened(conversationId) {
+
+		monkey.sendOpenToUser(conversationId);
+		if(store.getState().conversations[conversationId] && conversationId != conversationSelectedId && store.getState().conversations[conversationId].unreadMessageCounter != 0){
+			var conversation = store.getState().conversations[conversationId]
+			store.dispatch(actions.updateConversationUnreadCounter(conversation, 0));
+		}
+		this.setState({conversationId: conversationId});
+		conversationSelectedId = conversationId;
+	}
+
 	/* Message */
-	
+
 	handleMessage(message) {
 		createMessage(message);
 	}
-	
+
 	handleMessagesLoad(conversationId, firstMessageId) {
 		let conversation = {
 			id: conversationId,
 			loading: true
 		}
 		store.dispatch(actions.updateConversationLoading(conversation));
-		
-		monkey.getConversationMessages(conversationId, MESSAGES_LOAD, firstMessageId, function(err, res){
+
+		monkey.getConversationMessages(conversationId, 10, firstMessageId, function(err, res){
 			if(err){
 	            console.log(err);
 	        }else if(res){
@@ -446,10 +463,11 @@ class MonkeyChat extends Component {
 					res.map( mokMessage => {
 						let message = defineBubbleMessage(mokMessage);
 						if(message) {
-							// define status							
+							// define status
 							if(message.datetimeCreation <= lastOpenMe) {
 								message.status = 52;
 							}
+
 							messages[message.id] = message;
 						}
 					});
@@ -457,7 +475,7 @@ class MonkeyChat extends Component {
 						id: conversationId,
 						loading: false
 					}
-					
+
 					if(conversationSelectedId != conversationId){
 						store.dispatch(actions.addMessages(conversation, messages, true));
 					}else{
@@ -495,365 +513,151 @@ class MonkeyChat extends Component {
 
 		return user;
 	}
-	
-	handleMessageOptionsOutgoing(message){
-		if(store.getState().users.userSession.id != message.senderId){
-			return ;
-		}
 
-		var options = [];
-		options.push({
-			action : 'Unsend', 
-			func : function(){
-				monkey.unsend(message);
-			} 
-		});
-		options.push({
-			action : 'Message Info', 
-			func : function(){
-				this.handleSelectMessage(message)
-			}.bind(this)
-		});
-
-		return options;
-	}
-	
-	handleSelectMessage(message){
-		var messageSelectedInfo = {};
-		let messageUsers = [];
-		let users = store.getState().users;
-		let conversation = store.getState().conversations[conversationSelectedId];
-
-		messageSelectedInfo['message'] = message;
-		messageSelectedInfo['close'] = function(){
-			this.setState({
-				messageSelectedInfo : null,
-			})
-		}.bind(this);
-		this.setState({ messageSelectedInfo: messageSelectedInfo });
-		if(isConversationGroup(conversationSelectedId)){
-			conversation.members.forEach( (member) => {
-				if(!member){
-					return;
-				}
-				let user = users[member];
-				if(users.userSession.id == user.id){
-					return;
-				}
-
-				if(typeof conversation.online == 'boolean'){
-					if(!conversation.online){
-						user.description = 'Offline';
-					}
-				}else{
-					user.description = (conversation.online.indexOf(user.id) > -1 || users.userSession.id == user.id) ? 'Online' : 'Offline'
-				}
-
-				user.read = false;
-				if(conversation.lastSeen[member] && message.datetimeCreation <= conversation.lastSeen[member]){
-					user.read = true;
-				}
-
-				messageUsers.push(user);
-				messageSelectedInfo['users'] = messageUsers;
-				this.setState({ messageSelectedInfo: messageSelectedInfo });
-			});
-		}else{
-			let user = users[conversationSelectedId];
-			if(users.userSession.id == user.id){
-				return;
-			}
-
-			user.description = conversation.description ? conversation.description : 'Offline'
-			user.read = message.status == 52 ? true : false;
-			messageUsers.push(user);
-			messageSelectedInfo['users'] = messageUsers;
-			this.setState({ messageSelectedInfo: messageSelectedInfo });
-		}
-	}
-	
 	/* Notification */
-	
 	handleNotifyTyping(conversationId, isTyping){
 		if(!isConversationGroup(conversationId)){
-			monkey.sendTemporalNotification(conversationId, {type: isTyping ? 21 : 20}, null);
+			monkey.sendTemporalNotification(conversationId, {type : isTyping ? 21 : 20}, null);
 		}
 	}
-	
-	/* Loading */
-	
-	customLoader(){
-		return ( <div className='cstm-loading'>
-					<img src='https://cdn.criptext.com/Email/images/processing_email.gif'></img>
-				</div>
-		)
+
+	handleReconnect(){
+		if(monkey.status == DISCONNECTED){
+			monkey.startConnection(store.getState().users.userSession.id);
+		}
 	}
+
 }
 
 function render() {
 	monkeyChatInstance = ReactDOM.render(<MonkeyChat store={store.getState()}/>, document.getElementById('my-chat'));
+	drawMainBadge()
 }
 
-render();
 store.subscribe(render);
 
 window.onfocus = function(){
 	mky_focused = true;
-	document.getElementById('mky-title').innerHTML = 'Messenger Demo';
-	if(!monkey.getUser()){
-		return;
-	}
-	if(store.getState().conversations[conversationSelectedId]){
-		monkeyChatInstance.handleConversationOpened(store.getState().conversations[conversationSelectedId]);
-	}
-};
 
+};
 window.onblur = function(){
 	mky_focused = false;
-	if(!monkey.getUser()){
-		return;
-	}
-	pendingConversations = 0;
-	var myConversations = store.getState().conversations;
-	Object.keys(myConversations).forEach( (key) => {
-		if(myConversations[key].unreadMessageCounter){
-			if(key != conversationSelectedId){
-				pendingConversations++;
-			}
-		}
-	})
-	if(pendingConversations){
-		document.getElementById('mky-title').innerHTML = pendingConversations + ' Pending Conversations'
-	}
 
-	if(store.getState().conversations[conversationSelectedId]){
-		store.dispatch(actions.updateConversationUnreadCounter(store.getState().conversations[conversationSelectedId], 0));
-		monkey.closeConversation(conversationSelectedId);
-	}
 };
 
+function initConversation(user_id){
+	monkeyChatInstance.initConversation(user_id);
+}
+
+window.initConversation = initConversation;
 // MonkeyKit
 
 // --------------- ON CONNECT ----------------- //
 monkey.on('Connect', function(event) {
-	console.log('App - Connect');
-	
+
 	let user = event;
-	user.urlAvatar = event.avatar;
 	if(!store.getState().users.userSession){
 		user.id = event.monkeyId;
+		user.urlAvatar = event.avatar;
 		store.dispatch(actions.addUserSession(user));
 	}else if(!store.getState().users.userSession.id){
 		user.id = event.monkeyId;
+		user.urlAvatar = event.avatar;
 		store.dispatch(actions.addUserSession(user));
 	}
 	if(!Object.keys(store.getState().conversations).length){
-		loadConversations(Date.now(), true);
+		loadConversations(Date.now(),true);
 	}else{
 		monkey.getPendingMessages();
 	}
+	if(conversationSelectedId){
+		monkey.openConversation(conversationSelectedId);
+	}
 });
 
-// --------------- ON DISCONNECT --------------- //
+// -------------- ON DISCONNECT --------------- //
 monkey.on('Disconnect', function(event){
-	console.log('App - Disconnect');
+
 });
 
-// ------------------ ON EXIT ------------------ //
-monkey.on('Exit', function(event) {
-	console.log('App - Exit');
-	monkey.logout();
-	store.dispatch(actions.deleteUserSession());
-	store.dispatch(actions.deleteConversations());
-	conversationSelectedId = 0;
-});
-
-// ---------------- ON MESSAGE ---------------- //
+// --------------- ON MESSAGE ----------------- //
 monkey.on('Message', function(mokMessage){
-	console.log('App - Message');
+
+	count=count+1;
+	//setUnreadMessagesMainBadge(count);
 	defineMessage(mokMessage);
 });
 
-// -------------- ON SYNC MESSAGE -------------- //
+// --------------- ON MESSAGESYNC ----------------- //
 monkey.on('MessageSync', function(mokMessage){
-	console.log('App - MessageSync');
+
 	defineMessage(mokMessage, true);
 });
 
-// ------------- ON MESSAGE UNSEND ------------- //
-monkey.on('MessageUnsend', function(mokMessage){
-	console.log('App - MessageUnsend');
-	
-	let conversationId = store.getState().users.userSession.id == mokMessage.recipientId ? mokMessage.senderId : mokMessage.recipientId
-	let conversation = store.getState().conversations[conversationId];
-	if(!conversation || !conversation.messages[mokMessage.id]){
-		return;
-	}
-	let message = {
-		id: mokMessage.id
-	}
 
-	store.dispatch(actions.deleteMessage(message, conversationId));
-});
-
-// -------------- ON STATUS CHANGE -------------- //
-monkey.on('StatusChange', function(data){
-	console.log('App - StatusChange ' + data);
+// -------------- ON STATUS CHANGE --------------- //
+monkey.on('StatusChange', function(status){
 
 	var params = {};
 	var panelParams = {};
 
-	switch(data){
+	switch(status){
 		case OFFLINE:
-			params = {backgroundColor : "red", color : 'white', show : true, message : "Hay Problemas de Conexion", fontSize : '15px'};
+			params = {backgroundColor : "red", color : 'white', show : true, message : "No Internet Connection"};
 			break;
 		case DISCONNECTED:
-			var reconnectDiv = <div style={{fontSize : '15px'}}>Has sido desconectado! <span className="mky-connect-link" onClick={ () => {monkey.startConnection()} } >Reconectar!</span></div>
-			params = {backgroundColor : "black", color : 'white', show : true, component : reconnectDiv};
+		    var reconnectDiv = <div style={{fontSize : '15px'}}>You Have a Session somewhere else! <span className="mky-connect-link" style={{cursor:'pointer',color:'red'}} onClick={ () => {monkey.startConnection()} } >Connect Here!</span></div>
+			params = {backgroundColor : "black", color : 'white', show : true, message : reconnectDiv};
 			break;
 		case CONNECTING:
-			params = {backgroundColor : "#fed859", color : 'black', show : true, message : "Conectando...", fontSize : '15px'};
+			params = {backgroundColor : "#FF9900", color : 'black', show : true, message : "Connecting..."};
 			break;
 		case CONNECTED:
-			params = {backgroundColor : "#429A38", color : 'white', show : false, message : "Conectado!!", fontSize : '15px'};
+			params = {backgroundColor : "#429A38", color : 'white', show : false, message : "Connected!!"};
 			break;
 		case SYNCING:
-			params = {backgroundColor : "#ff7043", color : 'white', show : true, message : "Sincronizando...", fontSize : '15px'};
+			params = {backgroundColor : "#ff7043", color : 'white', show : true, message : "Syncing...", fontSize : '15px'};
 			break;
 		default:
 			params = {};
 	}
-	
-	//panelParams = {component : <ImageDummy/>, show : true, properties : params}
 
 	panelParams = params;
 
-	monkeyChatInstance.setState({
-		panelParams: panelParams,
-		connectionStatus: data
-	})
+	try{
+		monkeyChatInstance.setState({
+			panelParams : panelParams,
+			connectionStatus: status
+		})
+	}catch(exception){
+		console.log("Error Monkey Chat Instance");
+	}
+
 });
 
 // ------------- ON NOTIFICATION --------------- //
 monkey.on('Notification', function(data){
-	console.log('App - Notification');
-	
-	if(!data.params || !data.params.type){
-		return;
-	}
+
 	let paramsType = Number(data.params.type);
-	let conversationId = isConversationGroup(data.recipientId) ? data.recipientId : data.senderId;
-	let conversation = store.getState().conversations[conversationId];
-	if(!conversation){
+	let conversationId = data.senderId;
+	if(!store.getState().conversations[conversationId]){
     	return;
 	}
-	
-	let conversationTmp;
 	switch(paramsType) {
 		case 20: {
-			if(isConversationGroup(conversationId)) {
-				let membersTyping = conversation.membersTyping;
-				
-				if(membersTyping == null){
-					return;
-				}
-				
-				if(membersTyping.indexOf(data.senderId) == -1){
-					return;
-				}
-				
-				let users = store.getState().users;
-				membersTyping.splice(membersTyping.indexOf(data.senderId), 1);
-				var descText = "";
-				membersTyping.forEach( (monkey_id) => {
-					descText += users[monkey_id].name.split(" ")[0] + ", "
-				})
-				if(descText != ""){
-					descText = descText.replace(/,\s*$/, "");
-					if(membersTyping.length > 1){
-						descText += ' están escribiendo...'
-					}else{
-						descText += ' está escribiendo...'
-					}
-					
-				}else{
-					var members = listMembers(conversation.members);
-					descText = members;
-				}
-				conversationTmp = {
-					id: data.recipientId,
-					description: descText,
-					membersTyping: membersTyping,
-					preview: membersTyping.length > 0 ? users[membersTyping[membersTyping - 1]].name.split(" ")[0] + ' está escribiendo...' : null
-				}
-				
-			}else{
-				conversationTmp = {
+				let conversation = {
 					id: conversationId,
-					description: null,
-					membersTyping: [],
-					preview: null
+					description: null
 				}
-			}
-			
-			store.dispatch(actions.updateConversationStatus(conversationTmp));	
+				store.dispatch(actions.updateConversationStatus(conversation));
 			break;
 		}
 		case 21: {
-			
-			if(isConversationGroup(conversationId)) {
-				let membersTyping = conversation.membersTyping;
-				let users = store.getState().users;
-				
-				if(membersTyping == null){
-					membersTyping = [];
-					membersTyping.push(data.senderId);
-					conversationTmp = {
-						id: data.recipientId,
-						description: users[data.senderId].name.split(" ")[0] + ' está escribiendo...',
-						membersTyping: membersTyping,
-						preview: users[data.senderId].name.split(" ")[0] + ' está escribiendo...'
-					}
-					return store.dispatch(actions.updateConversationStatus(conversationTmp));
-				}
-				
-				if(membersTyping.indexOf(data.senderId) > -1){
-					return;
-				}
-				
-				membersTyping.push(data.senderId);
-				var descText = "";
-				membersTyping.forEach( (monkey_id) => {
-					descText += users[monkey_id].name.split(" ")[0] + ", "
-				})
-				if(descText != ""){
-					descText = descText.replace(/,\s*$/, "");
-					if(membersTyping.length > 1){
-						descText += ' están escribiendo...'
-					}else{
-						descText += ' está escribiendo...'
-					}
-				}else{
-					var members = listMembers(conversation.members);
-					descText = members;
-				}
-				conversationTmp = {
-					id: data.recipientId,
-					description: descText,
-					membersTyping: membersTyping,
-					preview: users[data.senderId].name.split(" ")[0] + ' está escribiendo...'
-				}
-					
-			}else{
-				conversationTmp = {
+				let conversation = {
 					id: conversationId,
-					description: 'typing...',
-					membersTyping: [conversationId],
-					preview: 'typing...'
+					description: 'typing...'
 				}
-			}
-			
-			store.dispatch(actions.updateConversationStatus(conversationTmp));
+				store.dispatch(actions.updateConversationStatus(conversation));
 			break;
 		}
 		default:
@@ -863,26 +667,24 @@ monkey.on('Notification', function(data){
 
 // -------------- ON ACKNOWLEDGE --------------- //
 monkey.on('Acknowledge', function(data){
-	console.log('App - Acknowledge');
-	
+
 	let conversationId = data.senderId;
 	if(!store.getState().conversations[conversationId])
     	return;
-	
+
 	let message = {
 		id: data.newId,
 		oldId: data.oldId,
 		status: Number(data.status),
 		recipientId: data.recipientId
 	}
-	
+
 	message.status = isConversationGroup(conversationId) ? 50 : Number(data.status);
 	store.dispatch(actions.updateMessageStatus(message, conversationId));
 });
 
 // ------- ON CONVERSATION OPEN RESPONSE ------- //
-monkey.on('ConversationStatusChange', function(data){
-	console.log('App - ConversationStatusChange');
+monkey.on('ConversationOpenResponse', function(data){
 
 	let conversationId = conversationSelectedId;
 	if(!store.getState().conversations[conversationId])
@@ -892,7 +694,6 @@ monkey.on('ConversationStatusChange', function(data){
 		id: conversationId,
 		online: data.online
 	}
-	
 	// define lastOpenMe
 	if(data.lastOpenMe){
 		conversation.lastOpenMe = Number(data.lastOpenMe)*1000;
@@ -908,18 +709,21 @@ monkey.on('ConversationStatusChange', function(data){
 
 // ------------ ON CONVERSATION OPEN ----------- //
 monkey.on('ConversationOpen', function(data){
-	console.log('App - ConversationOpen');
-	
+
 	let conversationId = data.senderId;
 	if(!store.getState().conversations[conversationId])
 		return;
-		
+
 	store.dispatch(actions.updateMessagesStatus(52, conversationId, false));
 });
 
+
+
+monkey.on('GroupCreate',function(data){
+})
+
 // -------------- ON GROUP REMOVE -------------- //
 monkey.on('GroupRemove', function(data){
-	console.log('App - GroupRemove');
 
 	if(store.getState().conversations[data.id]){
 		if(data.member != store.getState().users.userSession.id){
@@ -949,33 +753,35 @@ monkey.on('GroupAdd', function(data){
         let userTmp = {
 	    	id: data.member,
 	    	name: userInfo.name == undefined ? 'Unknown' : user.name,
-	    	urlAvatar: userInfo.avatar ? userInfo.avatar : 'https://cdn.criptext.com/MonkeyUI/images/userdefault.png'
+	    	avatar: userInfo.avatar ? userInfo.avatar : 'https://cdn.criptext.com/MonkeyUI/images/userdefault.png'
 	    }
 	    users[userTmp.id] = userTmp;
 		store.dispatch(actions.addUsersContact(users));
 		store.dispatch(actions.addMember(data.member, data.id));
-	});	
+	});
 });
 
 // MonkeyChat
 
 // MonkeyChat: Conversation
 
-function loadConversations(timestamp, firstTime) {
+function loadConversations(timestamp,firstTime) {
 	if(!monkeyChatInstance.state.conversationsLoading){
 		monkeyChatInstance.setState({ isLoadingConversations: true });
 	}
+
 	monkey.getConversations(timestamp, CONVERSATIONS_LOAD, function(err, resConversations){
         if(err){
             console.log(err);
-            monkeyChatInstance.setState({ isLoadingConversations: false });
+			monkeyChatInstance.setState({ isLoadingConversations: false });
 			monkeyChatInstance.handleShowConversationsLoading(false);
         }else if(resConversations && resConversations.length > 0){
 	        let conversations = {};
 	        let users = {};
 	        let usersToGetInfo = {};
 	        resConversations.map (conversation => {
-		        if(!conversation.info || !Object.keys(conversation.info).length){
+
+						if(!conversation.info || !Object.keys(conversation.info).length){
 		        	conversation.info = {};
 		        }
 
@@ -985,25 +791,28 @@ function loadConversations(timestamp, firstTime) {
 		        if (conversation.last_message.protocolType != 207){
 		        	let message = defineBubbleMessage(conversation.last_message);
 		        	if(message){
-			        	message.status = conversation.last_message.status == 'read' ? 52 : 51;
+		        		message.status = conversation.last_message.status == 'read' ? 52 : 51;
 			        	messages[message.id] = message;
-			        	messageId = message.id;	
+			        	messageId = message.id;
 		        	}
 		        }
 
-		        // define conversation
+
+		      	// define conversation
 		        let conversationTmp = {
-			    	id: conversation.id,
-			    	name: conversation.info.name || 'Unknown',
-			    	urlAvatar: conversation.info.avatar,
-			    	messages: messages,
-			    	lastMessage: messageId,
-			    	lastModified: conversation.last_modified*1000,
-			    	unreadMessageCounter: conversation.unread,
-			    	description: null,
-			    	loading: false,
-			    	admin: conversation.info.admin || ''
-		    	}
+				    	id: conversation.id,
+				    	name: conversation.info.name == undefined ? 'Unknown' : conversation.info.name,
+				    	urlAvatar: conversation.info.avatar,
+				    	messages: messages,
+				    	lastMessage: messageId,
+				    	lastModified : conversation.last_modified*1000,
+				    	unreadMessageCounter: conversation.unread,
+				    	description: null,
+				    	loading: false,
+							admin: conversation.info.admin || "",
+			    	}
+
+		    	count = count + conversation.unread;
 
 		    	// define group conversation
 		        if(isConversationGroup(conversation.id)){
@@ -1017,13 +826,13 @@ function loadConversations(timestamp, firstTime) {
 				        }
 			        });
 		        }else{ // define personal conversation
-			        conversationTmp.lastOpenMe = undefined;
-			    	conversationTmp.lastSeen = undefined;
-			    	conversationTmp.online = undefined;
+			        conversationTmp.lastOpenMe = undefined,
+			    	conversationTmp.lastSeen = undefined,
+			    	conversationTmp.online = undefined
 			    	// add user into users
 			    	let userTmp = {
 				    	id: conversation.id,
-				    	name: conversation.info.name || 'Unknown',
+				    	name: conversation.info.name == undefined ? 'Unknown' : conversation.info.name,
 			    	}
 			    	users[userTmp.id] = userTmp;
 			    	// delete user from usersToGetInfo
@@ -1045,7 +854,9 @@ function loadConversations(timestamp, firstTime) {
 		        monkey.getInfoByIds(ids, function(err, res){
 			        if(err){
 			            console.log(err);
-			            monkeyChatInstance.setState({ isLoadingConversations: false });
+			            monkeyChatInstance.setState({
+							isLoadingConversations : false
+						})
 			        }else if(res){
 				        if(res.length){
 					        let userTmp;
@@ -1054,11 +865,8 @@ function loadConversations(timestamp, firstTime) {
 						    	userTmp = {
 							    	id: user.monkey_id,
 							    	name: user.name == undefined ? 'Unknown' : user.name,
-							    	urlAvatar: user.avatar
 							    }
-							    if(!store.getState().users[user.monkey_id]){
-							    	users[userTmp.id] = userTmp;
-						    	}
+							    users[userTmp.id] = userTmp;
 					        });
 				        }
 			        }
@@ -1069,9 +877,11 @@ function loadConversations(timestamp, firstTime) {
 			        if(firstTime){
 			        	monkey.getPendingMessages();
 		        	}
-			        monkeyChatInstance.setState({ isLoadingConversations: false });
+
+					monkeyChatInstance.setState({ isLoadingConversations: false });
 			        monkeyChatInstance.handleShowConversationsLoading(false);
 		        });
+
 	        }else{
 		        if(Object.keys(users).length){
 			        store.dispatch(actions.addUsersContact(users));
@@ -1081,7 +891,7 @@ function loadConversations(timestamp, firstTime) {
 		        	monkey.getPendingMessages();
 	        	}
 		        monkeyChatInstance.setState({ isLoadingConversations: false });
-				monkeyChatInstance.handleShowConversationsLoading(false);
+			    monkeyChatInstance.handleShowConversationsLoading(false);
 	        }
         }else{
         	monkeyChatInstance.setState({ isLoadingConversations: false });
@@ -1096,9 +906,9 @@ function createConversation(conversationId, mokMessage){
 			if(err){
 	            console.log(err);
 	        }else if(data){
-		        if(!data.info){
-			        data.info = {}
-		        }
+						if(!data.info){
+							data.info = {}
+						}
 				if(isConversationGroup(conversationId)){
 					store.dispatch(actions.addConversation(defineConversation(conversationId, mokMessage, data.info.name || 'Unknown', data.info.avatar, data.members_info, data.members, data.info.admin || '')));
 				}else{
@@ -1109,20 +919,16 @@ function createConversation(conversationId, mokMessage){
 	}else{
 		store.dispatch(actions.addConversation(defineConversation(conversationId, mokMessage, store.getState().users[conversationId].name, store.getState().users[conversationId].urlAvatar)));
 	}
-
-	if(!mky_focused){
-		pendingConversations++;
-		document.getElementById('mky-title').innerHTML = pendingConversations + ' Pending Conversations';
-	}
 }
 
-function defineConversation(conversationId, mokMessage, name, urlAvatar, members_info, members, admin){
+function defineConversation(conversationId, mokMessage, name, urlAvatar, members_info, members,admin){
 	// define message
 	let messages = {};
 	let messageId = null;
 	let message = null;
 	let unreadMessageCounter = 0;
-	let notification_text = '';
+	let notification_text = "";
+
 	if(mokMessage){
 		message = defineBubbleMessage(mokMessage);
 	}
@@ -1141,7 +947,7 @@ function defineConversation(conversationId, mokMessage, name, urlAvatar, members
     	urlAvatar: urlAvatar,
     	messages: messages,
     	lastMessage: messageId,
-    	lastModified: mokMessage.datetimeCreation*1000,
+    	lastModified: mokMessage ? mokMessage.datetimeCreation*1000 : new Date().getTime(),
     	unreadMessageCounter: unreadMessageCounter,
     	description: null,
     	loading: false
@@ -1150,9 +956,10 @@ function defineConversation(conversationId, mokMessage, name, urlAvatar, members
 	// define group conversation
 	if(members_info){
 		conversation.description = '';
-		conversation.admin = admin;
 		conversation.members = members;
+		conversation.admin = admin;
 		conversation.online = false;
+
 		// get user info
 		let users = {};
 		let userTmp;
@@ -1160,7 +967,6 @@ function defineConversation(conversationId, mokMessage, name, urlAvatar, members
 			userTmp = {
 		    	id: user.monkey_id,
 		    	name: user.name == undefined ? 'Unknown' : user.name,
-		    	urlAvatar: user.avatar
 		    }
 		    users[userTmp.id] = userTmp;
 		});
@@ -1171,18 +977,20 @@ function defineConversation(conversationId, mokMessage, name, urlAvatar, members
     	conversation.online = undefined;
 	}
 
-	if (isConversationGroup(conversation.id)) {
-	    notification_text = store.getState().users[message.senderId].name + ' has sent a message to ' + conversation.name + '!';
-	}else{
-		notification_text = conversation.name + ' has sent You a message!';
-	}
+	if(message){
+		if (isConversationGroup(conversation.id)) {
+		    notification_text = store.getState().users[message.senderId].name + ' has sent a message to ' + conversation.name + '!';
+		}else{
+			notification_text = conversation.name + ' has sent You a message!';
+		}
 
-	if(store.getState().users.userSession.id != mokMessage.senderId && !mky_focused){
-		monkey.createPush(notification_text, message.preview, 4000, messageId, conversation.urlAvatar, function(){
-			monkey.closePush(messageId);
-			window.focus();
-			monkeyChatInstance.handleConversationOpened(conversation);
-		})
+		if(mokMessage && store.getState().users.userSession.id != mokMessage.senderId && !mky_focused){
+			monkey.createPush(notification_text, message.preview, 4000, messageId, conversation.urlAvatar, function(){
+				monkey.closePush(messageId);
+				window.focus();
+				monkeyChatInstance.handleConversationOpened(conversation);
+			})
+		}
 	}
 
 	return conversation;
@@ -1196,7 +1004,8 @@ function createMessage(message) {
 			let push = createPush(message.recipientId, message.bubbleType);
 			push.andData['session-id'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 			push.iosData['category'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
-			let mokMessage = monkey.sendEncryptedMessage(message.text, message.recipientId, null, push);
+
+			let mokMessage = monkey.sendMessage(message.text, message.recipientId, null,push);
 			message.id = mokMessage.id;
 			message.oldId = mokMessage.oldId;
 			message.datetimeCreation = Number(mokMessage.datetimeCreation*1000);
@@ -1208,7 +1017,8 @@ function createMessage(message) {
 			let push = createPush(message.recipientId, message.bubbleType);
 			push.andData['session-id'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 			push.iosData['category'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
-			let mokMessage = monkey.sendEncryptedFile(message.data, message.recipientId, message.filename, message.mimetype, 3, true, null, push);
+
+			let mokMessage = monkey.sendFile(message.data, message.recipientId, message.filename, message.mimetype, 3, true, null, push);
 			message.id = mokMessage.id;
 			message.oldId = mokMessage.oldId;
 			message.datetimeCreation = Number(mokMessage.datetimeCreation*1000);
@@ -1220,7 +1030,8 @@ function createMessage(message) {
 			let push = createPush(message.recipientId, message.bubbleType);
 			push.andData['session-id'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 			push.iosData['category'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
-			let mokMessage = monkey.sendEncryptedFile(message.data, message.recipientId, message.filename, message.mimetype, 4, true, null, push);
+
+			let mokMessage = monkey.sendFile(message.data, message.recipientId, message.filename, message.mimetype, 4, true, null, push);
 			message.id = mokMessage.id;
 			message.oldId = mokMessage.oldId;
 			message.datetimeCreation = Number(mokMessage.datetimeCreation*1000);
@@ -1232,7 +1043,8 @@ function createMessage(message) {
 			let push = createPush(message.recipientId, message.bubbleType);
 			push.andData['session-id'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 			push.iosData['category'] = isConversationGroup(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
-			let mokMessage = monkey.sendEncryptedFile(message.data, message.recipientId, 'audioTmp.mp3', message.mimetype, 1, true, {length: message.length}, push);
+
+			let mokMessage = monkey.sendFile(message.data, message.recipientId, 'audioTmp.mp3', message.mimetype, 1, true, {length: Number(message.length) }, push);
 			message.id = mokMessage.id;
 			message.oldId = mokMessage.oldId;
 			message.datetimeCreation = Number(mokMessage.datetimeCreation*1000);
@@ -1246,9 +1058,9 @@ function createMessage(message) {
 function defineMessage(mokMessage, syncing) {
 	let conversationId = store.getState().users.userSession.id == mokMessage.recipientId ? mokMessage.senderId : mokMessage.recipientId;
 	var conversation = store.getState().conversations[conversationId];
-	var notification_text = '';
+	var notification_text = "";
 
-	if(!conversation){ // handle does not exits conversations
+	if(!conversation) { // handle does not exits conversations
 		createConversation(conversationId, mokMessage);
 		return;
 	}else{
@@ -1256,28 +1068,29 @@ function defineMessage(mokMessage, syncing) {
 			return;
 		}
 	}
-	
+
 	let message = defineBubbleMessage(mokMessage);
 
+	if(mokMessage.senderId !== store.getState().users.userSession.id && mky_focused===false){
+		defineNotification(mokMessage,conversationId);
+	}else if(mokMessage.senderId !== store.getState().users.userSession.id && conversationSelectedId!== 0 && conversationSelectedId !== mokMessage.recipientId){
+		defineNotification(mokMessage,conversationId);
+	}
+
 	if(message){
-		// define status	
+		// define status
 		if( message.datetimeCreation <= store.getState().conversations[conversationId].lastOpenMe ){
 			message.status = 52;
 		}
-		
-		if(store.getState().conversations[conversationId].unreadMessageCounter <= 0 && !mky_focused && message.senderId != store.getState().users.userSession.id){
-			pendingConversations++;
-			document.getElementById('mky-title').innerHTML = pendingConversations + ' Pending Conversations';
-		}
 
 		if(message.senderId != store.getState().users.userSession.id){
-			store.dispatch(actions.addMessage(message, conversationId, syncing ? false : true));
+			store.dispatch(actions.addMessage(message, conversationId, true));
 		}else{
 			store.dispatch(actions.addMessage(message, conversationId, false));
 			store.dispatch(actions.updateConversationUnreadCounter(store.getState().conversations[conversationId], 0));
 		}
 
-		if( (!conversation.lastMessage || conversation.messages[conversation.lastMessage].datetimeOrder < message.datetimeOrder) && store.getState().users.userSession.id != mokMessage.senderId && !mky_focused && !syncing){
+		if((!conversation.lastMessage || conversation.messages[conversation.lastMessage].datetimeOrder < message.datetimeOrder) && store.getState().users.userSession.id != mokMessage.senderId && !syncing && (!mky_focused || document.getElementsByClassName("mky-wrapper-out mky-partialsize mky-rightside animated pulse")[0].offsetWidth == 0)){
 			monkey.closePush(conversation.lastMessage);
 			if (isConversationGroup(conversation.id)) {
 			    notification_text = store.getState().users[message.senderId].name + ' has sent a message to ' + conversation.name + '!';
@@ -1296,7 +1109,7 @@ function defineMessage(mokMessage, syncing) {
 function defineBubbleMessage(mokMessage){
 	if (!mokMessage.id)
 		return;
-		
+
 	let message = {
     	id: mokMessage.id.toString(),
     	oldId: mokMessage.oldId,
@@ -1311,23 +1124,23 @@ function defineBubbleMessage(mokMessage){
 
     switch (mokMessage.protocolType){
     	case 1:{
-	    	if(mokMessage.params && mokMessage.params.type == 14){
-				let card = parseVCard(mokMessage.text);
+			if(mokMessage.params && mokMessage.params.type == 14){
+					let card = parseVCard(mokMessage.text);
 
-				message.bubbleType = 'contact';
-				message.data = {
-					name: card.fn || 'Unknown',
-					tel: (card.tel && card.tel[0]) ? card.tel[0].value : null,
-					photo: card.photo ? card.photo[0].value : null
-				};
-				message.preview = 'Contact'
+					message.bubbleType = 'contact';
+					message.data = {
+						name: card.fn || 'Unknown',
+						tel: (card.tel && card.tel[0]) ? card.tel[0].value : null,
+						photo: card.photo ? card.photo[0].value : null
+					};
+					message.preview = 'Contact'
 
-		    }else{
-		    	message.bubbleType = 'text';
-		    	message.text = mokMessage.text;
-			    message.preview = mokMessage.text;
-    		}
-    	}
+			    }else{
+			    	message.bubbleType = 'text';
+			    	message.text = mokMessage.text;
+				    message.preview = mokMessage.text;
+	    		}
+	    	}
     		break;
     	case 2:{
 	    	message.filename = mokMessage.props.filename;
@@ -1352,7 +1165,7 @@ function defineBubbleMessage(mokMessage){
     	}
     		break;
 		case 207:{
-			return '';
+			return "";
 		}
     	default:
     		break;
@@ -1363,78 +1176,74 @@ function defineBubbleMessage(mokMessage){
 function toDownloadMessageData(mokMessage){
 	let conversationId = store.getState().users.userSession.id == mokMessage.recipientId ? mokMessage.senderId : mokMessage.recipientId;
 	let message = {
-		id: mokMessage.id,
-		isDownloading: true
-	}
+			id: mokMessage.id,
+			isDownloading: true
+	};
     store.dispatch(actions.updateMessageDataStatus(message, conversationId));
-        
+
 	switch(parseInt(mokMessage.props.file_type)){
-		case 1: { // audio
-			monkey.downloadFile(mokMessage, function(err, data){
-				let message = {
-					id: mokMessage.id,
-					data: null,
-					error: true
-				};
-				if(err){
-		            console.log(err);
-		        }else{
-			        console.log('App - audio downloaded');
-					let mime = 'audio/mpeg';
-			        if(mokMessage.props.mime_type){
-				        mime = mokMessage.props.mime_type;
-			        }
-					let src = `data:${mime};base64,${data}`;
-					message.data = src;
-					message.error = false;
+
+	case 1: // audio
+		monkey.downloadFile(mokMessage, function(err, data){
+			let message = {
+				id: mokMessage.id,
+				data: null,
+				error: true
+			};
+			if(err){
+	            console.log(err);
+	        }else{
+		        let mime = 'audio/mpeg';
+		        if(mokMessage.props.mime_type){
+			        mime = mokMessage.props.mime_type;
 		        }
-		        store.dispatch(actions.updateMessageData(message, conversationId));
-			});
-			break;
-		}
-		case 3: { // image
-			monkey.downloadFile(mokMessage, function(err, data){
-				let message = {
-					id: mokMessage.id,
-					data: null,
-					error: true
-				};
-				if(err){
-		            console.log(err);
-		        }else{
-			        console.log('App - image downloaded');
-					let src = `data:${mokMessage.props.mime_type};base64,${data}`;
-					message.data = src;
-					message.error = false;
-		        }
-		        store.dispatch(actions.updateMessageData(message, conversationId));
-			});
-			break;
-		}
-		case 4: { // file
-			monkey.downloadFile(mokMessage, function(err, data){
-				let message = {
-					id: mokMessage.id,
-					data: null,
-					error: true
-				};
-	
-				if(err){
-		            return console.log(err);
-		        }
-	
-		        console.log('App - file downloaded');
-				//let src = `data:${mokMessage.props.mime_type};base64,${data}`;
-				var blob = base64toBlob(data, mokMessage.props.mime_type);
-				var url = URL.createObjectURL(blob);
-		        message.data = url;
+				let src = `data:${mime};base64,${data}`;
+				message.data = src;
 				message.error = false;
-				message.isDownloading = false;
-		        store.dispatch(actions.updateMessageData(message, conversationId));
-				store.dispatch(actions.updateMessageDataStatus(message, conversationId));
-			});
-			break;
-		}
+	        }
+	        store.dispatch(actions.updateMessageData(message, conversationId));
+		});
+		break;
+	case 3: // image
+		monkey.downloadFile(mokMessage, function(err, data){
+			let message = {
+				id: mokMessage.id,
+				data: null,
+				error: true
+			};
+			if(err){
+	            console.log(err);
+	        }else{
+				let src = `data:${mokMessage.props.mime_type};base64,${data}`;
+				message.data = src;
+				message.error = false;
+	        }
+	        store.dispatch(actions.updateMessageData(message, conversationId));
+		});
+		break;
+	case 4: // file
+		monkey.downloadFile(mokMessage, function(err, data){
+			let message = {
+				id: mokMessage.id,
+				data: null,
+				error: true
+			};
+
+			if(err){
+	            return console.log(err);
+	        }
+
+	        console.log('App - file downloaded');
+			//let src = `data:${mokMessage.props.mime_type};base64,${data}`;
+			var blob = base64toBlob(data, mokMessage.props.mime_type);
+			var url = URL.createObjectURL(blob);
+	        message.data = url;
+			message.error = false;
+			message.isDownloading = false;
+	        store.dispatch(actions.updateMessageData(message, conversationId));
+			store.dispatch(actions.updateMessageDataStatus(message, conversationId));
+		});
+		break;
 	}
 }
 
@@ -1507,7 +1316,8 @@ function createPush(conversationId, bubbleType) {
                 break;
         }
     }else{ // to group
-	    var groupName = store.getState().conversations[conversationId].name;
+	    var groupName = store.getState().conversations[conversationId].name.replace('&','-');
+	    //var groupName = 'Shippify Nombre Grupo';
 	    locArgs = [username, groupName];
         switch(bubbleType){
             case 'text': // text message
@@ -1583,4 +1393,94 @@ function parseVCard(input) {
         }
     });
     return fields;
+}
+//***** Functions added for Shippify ****//
+//
+
+function defineNotification(mokMessage,conversationId){
+
+	let messageType = mokMessage.protocolType;
+	let content =mokMessage.text;
+
+	switch (messageType) {
+	  case monkey.enums.MessageType.TEXT:
+	    content = mokMessage.text;
+	    break;
+	  case monkey.enums.MessageType.FILE:
+	    if(monkey.enums.FileType.AUDIO===mokMessage.props.file_type){
+	      content = 'Audio Message';
+	    }else{
+	      content = 'File Message';
+	    }
+	    break;
+	  default:
+	      content = 'Default Message';
+	}
+
+
+	let user = store.getState().users[mokMessage.senderId];
+	let time = 60000;
+
+	var conversation = store.getState().conversations[conversationId];
+
+	monkey.createPush(user.name,content,time,mokMessage.args.id,conversation.urlAvatar,() => {
+	  monkey.closePush(mokMessage.args.id);
+	  window.focus();
+	  monkeyChatInstance.handleConversationOpened(conversation);
+	});
+}
+
+function setUnreadMessagesMainBadge(count_messages){
+	//$('#count_badge').html(count_messages);
+	if(count_messages<=0){
+		count=0;
+		$("#count_badge").hide();
+	}else{
+		$("#count_badge").show();
+	}
+}
+
+function drawMainBadge(){
+
+	let badge = '<div id="count_badge" class="" style="text-align:center; vertical-align: middle;width:20px; height:20px; font-size:13px; background-color:#FBA920; border-radius:50%; position:absolute; color:black !important; right:-1px; top:-4px; font-size: 25px; line-height: 1.5; display:none;">*</div>';
+	if($("#count_badge").length==0){
+		 $('.mky-button').prepend(badge);
+	}
+}
+function updateConversationCount(conversationId){
+
+	var count = unreadMessagesByConversation[conversationId].count;
+	unreadMessagesByConversation[conversationId]={ count : count+1 };
+}
+
+function getLastTimestamp(){
+	return monkey.session.lastTimestamp;
+}
+
+
+function createShippifyGroup(shipper,callback){
+
+	const method='POST';
+	const url='https://admin.shippify.co/externals/monkey/support/new';
+
+	const data = { shipperId:shipper.id,monkeyId: shipper.monkey_id, name:shipper.firstname+' '+shipper.lastname };
+
+	basicAjaxRequest(method,url,data,callback);
+
+}
+
+function basicAjaxRequest(method,url,data,callback){
+
+	$.ajax({
+		url:url,
+		method:method,
+		data:data,
+		success: function(data){
+			return callback(null,data);
+		},
+		error:function(error){
+			return callback(error);
+		}
+
+	})
 }
