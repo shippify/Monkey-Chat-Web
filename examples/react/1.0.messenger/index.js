@@ -62,6 +62,7 @@ class MonkeyChat extends Component {
 			conversationsLoading: true,
 			panelParams : {},
 			connectionStatus: 0,
+			alternateConversations: null,
 			isLoadingConversations: false
 		}
 
@@ -69,7 +70,7 @@ class MonkeyChat extends Component {
 			type: 'rightside',
 			data: {
 				width: '350px',
-				height: '92%'
+				height: '100%'
 			}
 		}
 
@@ -102,7 +103,10 @@ class MonkeyChat extends Component {
 		this.handleConversationIdOpened = this.handleConversationIdOpened.bind(this);
 		this.handleGroupInfo = this.handleGroupInfo.bind(this);
 
+
 		/* Options */
+		this.handleSearchUpdate = this.handleSearchUpdate.bind(this);
+
 		this.handleSortConversations = this.handleSortConversations.bind(this);
 		this.handleConversationDelete = this.handleConversationDelete.bind(this);
 
@@ -111,6 +115,9 @@ class MonkeyChat extends Component {
 		this.options = {
 			conversation: {
 				onSort: this.handleSortConversations,
+				onSecondSort: this.handleSecondSortConversations,
+				header1: 'Current Conversations',
+				header2: 'New Conversations',
 				optionsToDelete: {
 					onExitGroup: undefined,
 					onDelete: this.handleConversationDelete
@@ -132,6 +139,7 @@ class MonkeyChat extends Component {
 
 	render() {
 		return (
+
 			<MonkeyUI view={this.view}
 			    styles={this.styles}
 				options={this.options}
@@ -153,7 +161,9 @@ class MonkeyChat extends Component {
 				onNotifyTyping = {this.handleNotifyTyping}
 				onLoadMoreConversations = {this.handleLoadConversations}
 				isLoadingConversations = {this.state.isLoadingConversations}
-				connectionStatus = {this.state.connectionStatus} />
+				connectionStatus = {this.state.connectionStatus}
+				alternateConversations={this.state.alternateConversations}
+				searchUpdated = {this.handleSearchUpdate}/>
 		)
 	}
 
@@ -167,14 +177,77 @@ class MonkeyChat extends Component {
 
 	/* Conversation */
 	handleSortConversations(conversation1, conversation2) {
-	    if( !conversation1.messages || Object.keys(conversation1.messages).length == 0 || !conversation1.lastMessage || conversation1.messages[conversation1.lastMessage] == null )
-	        return 1;
-	    if( !conversation2.messages || Object.keys(conversation2.messages).length == 0 || !conversation2.lastMessage || conversation2.messages[conversation2.lastMessage] == null )
-	        return -1;
-	    return conversation2.messages[conversation2.lastMessage].datetimeCreation - conversation1.messages[conversation1.lastMessage].datetimeCreation;
+			let noLastMessage1, noLastMessage2;
+		    if( !conversation1.messages || Object.keys(conversation1.messages).length == 0 || !conversation1.lastMessage || conversation1.messages[conversation1.lastMessage] == null )
+		        noLastMessage1 = true;
+
+		    if( !conversation2.messages || Object.keys(conversation2.messages).length == 0 || !conversation2.lastMessage || conversation2.messages[conversation2.lastMessage] == null )
+		        noLastMessage2 = true;
+
+		    if(noLastMessage1 && noLastMessage2){
+		    	return conversation2.lastModified - conversation1.lastModified;
+		    }else if(noLastMessage2){
+		    	return conversation2.lastModified - Math.max(conversation1.messages[conversation1.lastMessage].datetimeCreation, conversation1.lastModified);
+		    }else if(noLastMessage1){
+		    	return Math.max(conversation2.messages[conversation2.lastMessage].datetimeCreation, conversation2.lastModified) - conversation1.lastModified;
+		    }else{
+		    	return Math.max(conversation2.messages[conversation2.lastMessage].datetimeCreation, conversation2.lastModified) - Math.max(conversation1.messages[conversation1.lastMessage].datetimeCreation, conversation1.lastModified);
+			}
 	}
 
+	handleSecondSortConversations(conversation1, conversation2) {
+		return conversation1.name.toLowerCase().localeCompare(conversation2.name.toLowerCase());
+	}
+
+	handleSearchUpdate(term){
+		if(term != null && term.length > 0){
+
+			var conversations = store.getState().conversations;
+
+			if(window.searchChatCouriers){
+				window.searchChatCouriers(conversations,term,searchUsersRemote=>{
+
+						this.setState({ alternateConversations: searchUsersRemote });
+				});
+			}
+			else{
+				var searchUsers = {};
+				var users = store.getState().users;
+
+				Object.keys(users).forEach( (monkeyId) => {
+					if(conversations[monkeyId] == null){
+						var conversation = {
+							id: monkeyId,
+							name: users[monkeyId].name,
+							urlAvatar: users[monkeyId].urlAvatar,
+							messages: {},
+							lastMessage: null,
+							lastModified: -1,
+							unreadMessageCounter: 0,
+							description: null,
+							loading: false
+						}
+						searchUsers[monkeyId] = conversation;
+					}
+				})
+
+				this.setState({ alternateConversations: searchUsers });
+			}
+
+
+		}else{
+			this.setState({ alternateConversations: null });
+		}
+	}
+
+
 	handleConversationOpened(conversation) {
+
+		if(!store.getState().conversations[conversation.id]){
+			delete this.state.alternateConversations[conversation.id]
+			createConversation(conversation.id, null);
+		}
+
 		monkey.sendOpenToUser(conversation.id);
 
 		if(store.getState().conversations[conversation.id] && conversation.id != conversationSelectedId && store.getState().conversations[conversation.id].unreadMessageCounter != 0){
@@ -183,19 +256,26 @@ class MonkeyChat extends Component {
 			setUnreadMessagesMainBadge(count);
 			store.dispatch(actions.updateConversationUnreadCounter(conversation, 0));
 		}
+
 		this.setState({conversationId: conversation.id});
 		conversationSelectedId = conversation.id;
 
 		if(isConversationGroup(conversation.id)){
-			let members = listMembers(store.getState().conversations[conversationSelectedId].members);
-			conversation['description'] = members;
+			//this.state.alternateConversations[conversation.id]
+			//let members = listMembers(store.getState().conversations[conversationSelectedId].members);
+			conversation['description'] = "Support with Shippify";
 			store.dispatch(actions.updateConversationStatus(conversation));
 		}
+		if( (conversation.id).indexOf("shipsupp")>=0 ){
+				window.postMessage({ type:"ShowShipperMap", conversation_id: conversation.id },'*');
+		}
 
-		window.postMessage({ type:"ShowShipperMap", conversation_id: conversation.id },'*');
 	}
 
 	handleConversationClosed() {
+
+		store.dispatch(actions.updateConversationUnreadCounter(store.getState().conversations[conversationSelectedId], 0));
+
 		monkey.closeConversation(conversationSelectedId);
 		this.setState({conversationId: 0});
 		conversationSelectedId = 0;
@@ -347,7 +427,7 @@ class MonkeyChat extends Component {
 			if(err){
 				return;
 			}
-			console.log(data)
+
 			store.dispatch(actions.updateConversationAdmin(conversation, data.admin));
 		});
 	}
@@ -363,8 +443,6 @@ class MonkeyChat extends Component {
 
 		const conversation = store.getState().conversations[groupId];
 
-		console.log(" Group ID :",groupId);
-
 		if( typeof conversation!=='undefined' && conversation!=null ){
 			this.handleConversationIdOpened(groupId);
 			return;
@@ -377,8 +455,6 @@ class MonkeyChat extends Component {
 			}
 
 			const shipper_info = groupInfo.members.filter( monkeyId => monkeyId==shipper.monkey_id );
-
-			console.log(" Shipper Info:",JSON.stringify(shipper_info));
 
 			if(typeof groupInfo.members==null || groupInfo.members.length==0 || shipper_info.length==0){
 				createShippifyGroup(shipper,(error,groupShippifyInfo) => {
@@ -400,11 +476,11 @@ class MonkeyChat extends Component {
 					})
 				})
 			}else if(groupInfo.members.indexOf(userId)>-1){
-				console.log("MEMBERS CONVERSATION");
+
 				this.handleGroupInfo(groupInfo,shipper);
 				return;
 			}else{
-				console.log("ADD MEMBER TO GROUP");
+
 				monkey.addMemberToGroup(groupId,userId,null,null,(err,_groupInfo) => {
 					if(err){
 						console.log(" Error addMemberToGroup:",err);
@@ -771,10 +847,11 @@ function loadConversations(timestamp,firstTime) {
 	}
 
 	monkey.getConversations(timestamp, CONVERSATIONS_LOAD, function(err, resConversations){
-        if(err){
-            console.log(err);
-			monkeyChatInstance.setState({ isLoadingConversations: false });
-			monkeyChatInstance.handleShowConversationsLoading(false);
+      if(err){
+            console.log("Error getting conversations "+err);
+
+						monkeyChatInstance.setState({ isLoadingConversations: false });
+						monkeyChatInstance.handleShowConversationsLoading(false);
         }else if(resConversations && resConversations.length > 0){
 	        let conversations = {};
 	        let users = {};
