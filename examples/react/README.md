@@ -39,5 +39,11 @@ npm install
 
 npm test /* development environment or */ npm run build /* production environmnet */
 
-open chat.html
+To test you have to use the `index.html` that is in the directory.
+
+open index.html or if you need a http server use :
+`https://github.com/indexzero/http-server`
+
+Run `http-server`
+
 ```
