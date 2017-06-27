@@ -20,7 +20,7 @@ const CONNECTING = 2;
 const CONNECTED = 3;
 const SYNCING = 4;
 const MESSAGES_LOAD = 20;
-const CONVERSATIONS_LOAD = 30;
+const CONVERSATIONS_LOAD = 16;
 const store = compose(applyMiddleware(...middlewares))(createStore)(reducer, {conversations: {}, users: {userSession: monkey.getUser()}});
 
 const colorUsers = ["#6f067b","#00a49e","#b3007c","#b4d800","#e20068","#00b2eb","#ec870e","#84b0b9","#3a6a74","#bda700","#826aa9","#af402a","#733610","#020dd8","#7e6565","#cd7967","#fd78a7","#009f62","#336633","#e99c7a","#000000"];
@@ -522,16 +522,21 @@ class MonkeyChat extends Component {
 		createMessage(message);
 	}
 
-	handleMessagesLoad(conversationId, firstMessageId) {
+	handleMessagesLoad(conversationId, firstMessageId) { // firstMessageId is now lastTimestamp
+
 		let conversation = {
 			id: conversationId,
 			loading: true
 		}
 		store.dispatch(actions.updateConversationLoading(conversation));
 
+		if(firstMessageId !=null){
+			firstMessageId = firstMessageId / 1000 ;
+		}
+
 		monkey.getConversationMessages(conversationId, 10, firstMessageId, function(err, res){
 			if(err){
-	            console.log(err);
+	           console.log(err);
 	        }else if(res){
 		        if(res.length){
 			     	let messages = {};
@@ -892,7 +897,7 @@ function loadConversations(timestamp,firstTime) {
 		    	count = count + conversation.unread;
 
 		    	// define group conversation
-		        if(isConversationGroup(conversation.id)){
+		      if(isConversationGroup(conversation.id)){
 			        conversationTmp.members = conversation.members;
 			        conversationTmp.description = '';
 			        conversationTmp.online = false;
@@ -904,16 +909,16 @@ function loadConversations(timestamp,firstTime) {
 			        });
 		        }else{ // define personal conversation
 			        conversationTmp.lastOpenMe = undefined,
-			    	conversationTmp.lastSeen = undefined,
-			    	conversationTmp.online = undefined
-			    	// add user into users
-			    	let userTmp = {
-				    	id: conversation.id,
-				    	name: conversation.info.name == undefined ? 'Unknown' : conversation.info.name,
-			    	}
-			    	users[userTmp.id] = userTmp;
-			    	// delete user from usersToGetInfo
-			    	delete usersToGetInfo[userTmp.id];
+				    	conversationTmp.lastSeen = undefined,
+				    	conversationTmp.online = undefined
+				    	// add user into users
+				    	let userTmp = {
+					    	id: conversation.id,
+					    	name: conversation.info.name == undefined ? 'Unknown' : conversation.info.name,
+				    	}
+				    	users[userTmp.id] = userTmp;
+				    	// delete user from usersToGetInfo
+				    	delete usersToGetInfo[userTmp.id];
 		        }
 		        conversations[conversationTmp.id] = conversationTmp;
 	        })
@@ -968,11 +973,11 @@ function loadConversations(timestamp,firstTime) {
 		        	monkey.getPendingMessages();
 	        	}
 		        monkeyChatInstance.setState({ isLoadingConversations: false });
-			    monkeyChatInstance.handleShowConversationsLoading(false);
+			    	monkeyChatInstance.handleShowConversationsLoading(false);
 	        }
         }else{
         	monkeyChatInstance.setState({ isLoadingConversations: false });
-			monkeyChatInstance.handleShowConversationsLoading(false);
+					monkeyChatInstance.handleShowConversationsLoading(false);
         }
     });
 }
@@ -1060,8 +1065,9 @@ function defineConversation(conversationId, mokMessage, name, urlAvatar, members
 		}else{
 			notification_text = conversation.name + ' has sent You a message!';
 		}
-
 		if(mokMessage && store.getState().users.userSession.id != mokMessage.senderId && !mky_focused){
+
+			console.log("===== Creating PUSH DEFINE CONVERSATION ")
 			monkey.createPush(notification_text, message.preview, 4000, messageId, conversation.urlAvatar, function(){
 				monkey.closePush(messageId);
 				window.focus();
@@ -1132,7 +1138,7 @@ function createMessage(message) {
 	}
 }
 
-function defineMessage(mokMessage, syncing) {
+function defineMessage(mokMessage, syncing=false) {
 	let conversationId = store.getState().users.userSession.id == mokMessage.recipientId ? mokMessage.senderId : mokMessage.recipientId;
 	var conversation = store.getState().conversations[conversationId];
 	var notification_text = "";
@@ -1148,12 +1154,6 @@ function defineMessage(mokMessage, syncing) {
 
 	let message = defineBubbleMessage(mokMessage);
 
-	if(mokMessage.senderId !== store.getState().users.userSession.id && mky_focused===false){
-		defineNotification(mokMessage,conversationId);
-	}else if(mokMessage.senderId !== store.getState().users.userSession.id && conversationSelectedId!== 0 && conversationSelectedId !== mokMessage.recipientId){
-		defineNotification(mokMessage,conversationId);
-	}
-
 	if(message){
 		// define status
 		if( message.datetimeCreation <= store.getState().conversations[conversationId].lastOpenMe ){
@@ -1167,18 +1167,30 @@ function defineMessage(mokMessage, syncing) {
 			store.dispatch(actions.updateConversationUnreadCounter(store.getState().conversations[conversationId], 0));
 		}
 
-		if((!conversation.lastMessage || conversation.messages[conversation.lastMessage].datetimeOrder < message.datetimeOrder) && store.getState().users.userSession.id != mokMessage.senderId && !syncing && (!mky_focused || document.getElementsByClassName("mky-wrapper-out mky-partialsize mky-rightside animated pulse")[0].offsetWidth == 0)){
-			monkey.closePush(conversation.lastMessage);
-			if (isConversationGroup(conversation.id)) {
-			    notification_text = store.getState().users[message.senderId].name + ' has sent a message to ' + conversation.name + '!';
-			}else{
-				notification_text = store.getState().users[message.senderId].name + ' has sent You a message!';
-			}
-			monkey.createPush(notification_text, message.preview, 4000, message.id, conversation.urlAvatar, function(){
-				monkey.closePush(message.id);
-				window.focus();
-				monkeyChatInstance.handleConversationOpened(conversation);
-			})
+		console.log("===== NEW I am syncing  now ",syncing)
+		if((!conversation.lastMessage ||
+			conversation.messages[conversation.lastMessage].datetimeOrder < message.datetimeOrder)
+			&& store.getState().users.userSession.id != mokMessage.senderId
+			&& !syncing
+			&& (!mky_focused ||
+				document.getElementsByClassName("mky-wrapper-out mky-partialsize mky-rightside animated pulse")[0].offsetWidth == 0))
+			{
+
+					//defineNotification(mokMessage,conversationId);
+
+					monkey.closePush(conversation.lastMessage);
+					if (isConversationGroup(conversation.id)) {
+					    notification_text = store.getState().users[message.senderId].name + ' has sent a message to ' + conversation.name + '!';
+					}else{
+							notification_text = store.getState().users[message.senderId].name + ' has sent You a message!';
+					}
+					console.log("===== Creating PUSH from the defineMessage ")
+					monkey.createPush(notification_text, message.preview, 4000, message.id, conversation.urlAvatar, function(){
+						monkey.closePush(message.id);
+						window.focus();
+						monkeyChatInstance.handleConversationOpened(conversation);
+					})// end createPush
+
 		}
 	}
 }
@@ -1367,34 +1379,40 @@ function listMembers(members){
 
 function createPush(conversationId, bubbleType) {
 
-	const username = store.getState().users.userSession.name;
-    let pushLocalization;
-    let text;
+	//const username = store.getState().users.userSession.name;
+	const username = "Shippify"
+  let pushLocalization;
+  let text;
 	let locArgs;
 
+		// CUSTOM SHippify, send as it is one to one conversation
+		// remember all this messages are sent directly to shipper
+
     if (!isConversationGroup(conversationId)) {
-	    locArgs = [username];
-        switch(bubbleType) {
-            case 'text': // text message
-                pushLocalization = 'pushtextKey';
-                text = username+' sent you a message';
-                break;
-            case 'audio': // audio message
-                pushLocalization = 'pushaudioKey';
-                text = username+' sent you an audio';
-                break;
-            case 'image': // image message
-                pushLocalization = 'pushimageKey';
-                text = username+' sent you an image';
-                break;
-            case 'file': // file message
-                pushLocalization = 'pushfileKey';
-                text = username+' sent you a file';
-                break;
-        }
+
+			locArgs = [username];
+			switch(bubbleType) {
+							case 'text': // text message
+									pushLocalization = 'pushtextKey';
+									text = username+' sent you a message';
+									break;
+							case 'audio': // audio message
+									pushLocalization = 'pushaudioKey';
+									text = username+' sent you an audio';
+									break;
+							case 'image': // image message
+									pushLocalization = 'pushimageKey';
+									text = username+' sent you an image';
+									break;
+							case 'file': // file message
+									pushLocalization = 'pushfileKey';
+									text = username+' sent you a file';
+									break;
+				}
+
     }else{ // to group
-	    var groupName = store.getState().conversations[conversationId].name.replace('&','-');
-	    //var groupName = 'Shippify Nombre Grupo';
+	    //const groupName = store.getState().conversations[conversationId].name.replace('&','-');
+	    const groupName = ' Support ';
 	    locArgs = [username, groupName];
         switch(bubbleType){
             case 'text': // text message
@@ -1415,8 +1433,11 @@ function createPush(conversationId, bubbleType) {
                 break;
         }
     }
+
     return monkey.generateLocalizedPush(pushLocalization, locArgs, text);
 }
+
+
 
 function parseVCard(input) {
     var Re1 = /^(version|fn|title|org):(.+)$/i;
@@ -1499,7 +1520,7 @@ function defineNotification(mokMessage,conversationId){
 	let time = 60000;
 
 	var conversation = store.getState().conversations[conversationId];
-
+	console.log("===== Creating PUSH DEFINE NOTIFICATION ")
 	monkey.createPush(user.name,content,time,mokMessage.args.id,conversation.urlAvatar,() => {
 	  monkey.closePush(mokMessage.args.id);
 	  window.focus();
