@@ -1,19 +1,72 @@
 <!DOCTYPE html>
-<!DOCTYPE html>
 <html>
   <head>
     <title>Demo React</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0" />
-    <link rel="stylesheet" href="css/animation.css"><!--[if IE 7]><link rel="stylesheet" href="css/mky-ie7.css"><![endif]-->
-    <link rel="stylesheet" href="styles/animate.min.css">
-<!--
-    <script src="https://maps.googleapis.com/maps/api/js?sensor=false"></script>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
--->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
   </head>
   <body>
-    <div id="my-chat"></div>
+    <div id="my-chat" style="height: 500px;">
+    </div>
+
+    <button onclick="openChat()">
+      Open Chat
+    </button>
+
+
+    <button onclick="closeChat()">
+      Close Chat
+    </button>
+
   	<script type="text/javascript" src="bundle/index.js"></script>
+
+
+
+    <script type="text/javascript">
+
+      function closeChat(){
+        $("#my-chat").hide()
+      }
+      function openChat(){
+        // Shipper Luis
+        const shpperMkId="ivmzuxfoy5tz59ynz2lkrzfr"
+
+          $("#my-chat").show()
+
+          if($("#my-chat").children().length)
+          {
+            console.log("Already init")
+            return;
+          }
+
+          let clientUser =
+          {
+            name:'Luis Loaiza',
+            monkeyId:'ife4c0qdb0dopbg538lg14i',
+            type: 'client',
+            email : "luislp05@gmail.com",
+            deliveryId:"t-shiinc-18006"
+          }
+
+          initChat(clientUser, ()=>{
+            console.log("Chat was init")
+          });
+          createConversation(shpperMkId, null)
+
+      }
+    </script>
+
+
   </body>
+
+  <style>
+      .mky-rightside, .mky-wrapper-in{
+        transition:none !important ;
+      }
+      .mky-conversation-selected-status{
+        color: #DDD !important;
+      }
+
+  </style>
 </html>
