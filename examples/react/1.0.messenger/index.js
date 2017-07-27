@@ -1138,6 +1138,19 @@ function createMessage(message) {
 	}
 }
 
+// Calling Balloon to the circle that opens the chat conversation window
+function isOpenBalloon(){
+	// check if baloon exist and if not chech for a status variable that will tell you
+	const baloon = document.getElementsByClassName("mky-wrapper-out mky-partialsize mky-rightside animated pulse")[0];
+
+	if(baloon && baloon.offsetWidth == 0)
+	{
+		return false
+	}
+
+	return true
+}
+
 function defineMessage(mokMessage, syncing=false) {
 	let conversationId = store.getState().users.userSession.id == mokMessage.recipientId ? mokMessage.senderId : mokMessage.recipientId;
 	var conversation = store.getState().conversations[conversationId];
@@ -1172,8 +1185,7 @@ function defineMessage(mokMessage, syncing=false) {
 			conversation.messages[conversation.lastMessage].datetimeOrder < message.datetimeOrder)
 			&& store.getState().users.userSession.id != mokMessage.senderId
 			&& !syncing
-			&& (!mky_focused ||
-				document.getElementsByClassName("mky-wrapper-out mky-partialsize mky-rightside animated pulse")[0].offsetWidth == 0))
+			&& (!mky_focused || !isOpenBalloon() )
 			{
 
 					//defineNotification(mokMessage,conversationId);
