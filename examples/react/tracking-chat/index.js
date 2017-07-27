@@ -1146,7 +1146,7 @@ function defineMessage(mokMessage, syncing=false) {
 			conversation.messages[conversation.lastMessage].datetimeOrder < message.datetimeOrder)
 			&& store.getState().users.userSession.id != mokMessage.senderId
 			&& !syncing
-			&& (!mky_focused || !isOpenBalloon() )
+			&& (!mky_focused || !isOpenBalloon() ))
 			{
 
 					monkey.closePush(conversation.lastMessage);
