@@ -719,12 +719,44 @@ monkey.on('Acknowledge', function(data){
 	store.dispatch(actions.updateMessageStatus(message, conversationId));
 });
 
+
+// ------- ON CONVERSATION OPEN RESPONSE ------- //
+monkey.on('ConversationStatusChange', function(data){
+
+	let conversationId = data.senderId;
+	let targetConversation = store.getState().conversations[conversationId]
+	if(!targetConversation)
+		return;
+
+	let conversation = {
+		id: conversationId,
+		online: data.online
+	}
+		// define lastOpenMe
+		if(data.lastOpenMe){
+			conversation.lastOpenMe = Number(data.lastOpenMe)*1000;
+		}
+		// define lastSeen
+		if(data.lastSeen){
+			conversation.lastSeen = Number(data.lastSeen)*1000;
+		}
+
+
+	store.dispatch(actions.updateConversationStatus(conversation));
+	store.dispatch(actions.updateMessagesStatus(52, conversationId, true));
+});
+
 // ------- ON CONVERSATION OPEN RESPONSE ------- //
 monkey.on('ConversationOpenResponse', function(data){
+	console.log('App - ConversationOpen');
 
 	let conversationId = conversationSelectedId;
-	if(!store.getState().conversations[conversationId])
+	if(!store.getState().conversations[conversationId]){
+
+		console.log('returning - ',conversationId);
 		return;
+	}
+
 
 	let conversation = {
 		id: conversationId,
@@ -754,9 +786,6 @@ monkey.on('ConversationOpen', function(data){
 });
 
 
-
-monkey.on('GroupCreate',function(data){
-})
 
 // -------------- ON GROUP REMOVE -------------- //
 monkey.on('GroupRemove', function(data){
@@ -941,26 +970,36 @@ function loadConversations(timestamp,firstTime) {
 }
 
 window.createConversation = createConversation
-
-function createConversation(conversationId, mokMessage, callback){
+/*
+	payload:{
+	name: conversation name,
+	courierId: shipper id
+}
+*/
+function createConversation(conversationId, payload, callback){
 	if(store.getState().users[conversationId] == null){
 
-		monkey.getInfoById(conversationId, function(err, data){
+		if(!payload){
 
-			if(err){
-	        console.log(err);
-					if(callback){callback(err)}
-					return
-	     }
+			monkey.getInfoById(conversationId, function(err, data){
 
-			 if(!data.info){
-					data.info = {}
-				}
+				if(err){
+						console.log(err);
+						if(callback){callback(err)}
+						return
+				 }
 
-				const fixedAvatar = `https://admin.shippify.co/photos/shippers/${data.shipperId}/thumbnail.jpg`
-				store.dispatch(actions.addConversation(defineConversation(conversationId, null, data.name, fixedAvatar)));
-				if(callback){callback()}
-		});
+					const fixedAvatar = `https://api.shippify.co/photos/shippers/${data.shipperId}/thumbnail.jpg`
+					store.dispatch(actions.addConversation(defineConversation(conversationId, null, data.name, fixedAvatar)));
+					if(callback){callback()}
+			});
+
+			return
+		}
+
+		const fixedAvatar = `https://api.shippify.co/photos/shippers/${payload.courierId}/thumbnail.jpg`
+		store.dispatch(actions.addConversation(defineConversation(conversationId, null, payload.name, fixedAvatar)));
+		if(callback){callback()}
 
 	}else{
 		store.dispatch(actions.addConversation(defineConversation(conversationId, mokMessage, store.getState().users[conversationId].name, store.getState().users[conversationId].urlAvatar)));
@@ -1361,18 +1400,20 @@ function createPush(conversationId, bubbleType) {
 
     if (!isConversationGroup(conversationId)) {
 
-			locArgs = [username];
+			//const senderName = store.getState().conversations[conversationId].name.replace('&','-');
+
+			locArgs = [username,"App"];
 			switch(bubbleType) {
 							case 'text': // text message
-									pushLocalization = 'pushtextKey';
+									pushLocalization = 'grouppushtextKey';
 									text = username+' sent you a message';
 									break;
 							case 'audio': // audio message
-									pushLocalization = 'pushaudioKey';
+									pushLocalization = 'grouppushaudioKey';
 									text = username+' sent you an audio';
 									break;
 							case 'image': // image message
-									pushLocalization = 'pushimageKey';
+									pushLocalization = 'grouppushimageKey';
 									text = username+' sent you an image';
 									break;
 							case 'file': // file message

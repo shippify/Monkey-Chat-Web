@@ -30,7 +30,8 @@
       }
       function openChat(){
         // Shipper Luis
-        const shpperMkId="ivmzuxfoy5tz59ynz2lkrzfr"
+        //const shpperMkId="ivmzuxfoy5tz59ynz2lkrzfr"
+        const shpperMkId="ivsbf2caxg8b0ocphwqj8aor"
 
           $("#my-chat").show()
 
@@ -42,17 +43,22 @@
 
           let clientUser =
           {
-            name:'Luis Loaiza',
-            monkeyId:'ife4c0qdb0dopbg538lg14i',
+            name:'Wander Bravo',
+            monkeyId:'j5y69l8zhdh0368iti0zdrb1ejao47vi',
             type: 'client',
-            email : "luislp05@gmail.com",
-            deliveryId:"t-shiinc-18006"
+            email : "wander@shippify.co",
+            deliveryId:"t-shieam-15837"
           }
 
           initChat(clientUser, ()=>{
             console.log("Chat was init")
+
+            createConversation(shpperMkId, {
+              name:'Shipper Kevin Campuzano',
+              courierId: 6022
+            })
           });
-          createConversation(shpperMkId, null)
+
 
       }
     </script>
