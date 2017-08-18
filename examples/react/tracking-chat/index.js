@@ -39,7 +39,7 @@ var unreadMessagesByConversation = { };
 
 window.initChat = function(user, callback){
 	monkey.close();
-	monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user,null,false, vars.MONKEY_DEBUG_MODE, false,true,function(error,success){
+	monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user,null,false, vars.MONKEY_DEBUG_MODE, false,true, false,function(error,success){
 
 		if(error){
 			console.log(" Error :",JSON.stringify(error));
