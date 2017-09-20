@@ -110,9 +110,11 @@
 
 	var unreadMessagesByConversation = {};
 
-	window.initChat = function (user, callback) {
+	var userChatWith = {};
+
+	window.initChat = function (user, userChatWithLocal, callback) {
 		monkey.close();
-		monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user, null, false, vars.MONKEY_DEBUG_MODE, false, true, function (error, success) {
+		monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user, null, false, vars.MONKEY_DEBUG_MODE, false, true, false, function (error, success) {
 
 			if (error) {
 				console.log(" Error :", JSON.stringify(error));
@@ -123,6 +125,9 @@
 			delete updatedMetadata.monkeyId;
 
 			monkey.updateUser(updatedMetadata, function (err, result) {
+
+				userChatWith = userChatWithLocal;
+
 				callback();
 			});
 		});
@@ -703,6 +708,9 @@
 		if (conversationSelectedId) {
 			monkey.openConversation(conversationSelectedId);
 		}
+
+		console.log("Now i am creating conversation");
+		createConversation(userChatWith.monkeyId, userChatWith);
 	});
 
 	// -------------- ON DISCONNECT --------------- //
@@ -824,7 +832,7 @@
 
 	// ------- ON CONVERSATION OPEN RESPONSE ------- //
 	monkey.on('ConversationStatusChange', function (data) {
-
+		console.log("Conversation changed ", data);
 		var conversationId = data.senderId;
 		var targetConversation = store.getState().conversations[conversationId];
 		if (!targetConversation) return;
@@ -877,8 +885,14 @@
 
 		var conversationId = data.senderId;
 		if (!store.getState().conversations[conversationId]) return;
-
+		console.log("OPEN CONVERSSTION ???? ", data);
 		store.dispatch(_reduxMonkeyChat.actions.updateMessagesStatus(52, conversationId, false));
+
+		var conversation = {
+			id: conversationId,
+			online: 1
+		};
+		store.dispatch(_reduxMonkeyChat.actions.updateConversationStatus(conversation));
 	});
 
 	// -------------- ON GROUP REMOVE -------------- //
@@ -1098,11 +1112,13 @@
 				callback();
 			}
 		} else {
-			store.dispatch(_reduxMonkeyChat.actions.addConversation(defineConversation(conversationId, mokMessage, store.getState().users[conversationId].name, store.getState().users[conversationId].urlAvatar)));
-			if (callback) {
-				callback();
-			}
+			// cnversation exists
+			console.log("conversation exists --- ", store.getState().users[conversationId]);
+			// store.dispatch(actions.addConversation(defineConversation(conversationId, null, store.getState().users[conversationId].name, store.getState().users[conversationId].urlAvatar)));
+			// if(callback){callback()}
 		}
+
+		monkey.openConversation(conversationId);
 	}
 
 	function defineConversation(conversationId, mokMessage, name, urlAvatar) {
@@ -1183,11 +1199,11 @@
 					push.andData['session-id'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 					push.iosData['category'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 
-					var _mokMessage = monkey.sendMessage(message.text, message.recipientId, null, push);
-					message.id = _mokMessage.id;
-					message.oldId = _mokMessage.oldId;
-					message.datetimeCreation = Number(_mokMessage.datetimeCreation * 1000);
-					message.datetimeOrder = Number(_mokMessage.datetimeOrder * 1000);
+					var mokMessage = monkey.sendMessage(message.text, message.recipientId, null, push);
+					message.id = mokMessage.id;
+					message.oldId = mokMessage.oldId;
+					message.datetimeCreation = Number(mokMessage.datetimeCreation * 1000);
+					message.datetimeOrder = Number(mokMessage.datetimeOrder * 1000);
 					store.dispatch(_reduxMonkeyChat.actions.addMessage(message, message.recipientId, false));
 					break;
 				}
@@ -1198,11 +1214,11 @@
 					_push.andData['session-id'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 					_push.iosData['category'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 
-					var _mokMessage2 = monkey.sendFile(message.data, message.recipientId, message.filename, message.mimetype, 3, true, null, _push);
-					message.id = _mokMessage2.id;
-					message.oldId = _mokMessage2.oldId;
-					message.datetimeCreation = Number(_mokMessage2.datetimeCreation * 1000);
-					message.datetimeOrder = Number(_mokMessage2.datetimeOrder * 1000);
+					var _mokMessage = monkey.sendFile(message.data, message.recipientId, message.filename, message.mimetype, 3, true, null, _push);
+					message.id = _mokMessage.id;
+					message.oldId = _mokMessage.oldId;
+					message.datetimeCreation = Number(_mokMessage.datetimeCreation * 1000);
+					message.datetimeOrder = Number(_mokMessage.datetimeOrder * 1000);
 					store.dispatch(_reduxMonkeyChat.actions.addMessage(message, message.recipientId, false));
 					break;
 				}
@@ -1213,11 +1229,11 @@
 					_push2.andData['session-id'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 					_push2.iosData['category'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 
-					var _mokMessage3 = monkey.sendFile(message.data, message.recipientId, message.filename, message.mimetype, 4, true, null, _push2);
-					message.id = _mokMessage3.id;
-					message.oldId = _mokMessage3.oldId;
-					message.datetimeCreation = Number(_mokMessage3.datetimeCreation * 1000);
-					message.datetimeOrder = Number(_mokMessage3.datetimeOrder * 1000);
+					var _mokMessage2 = monkey.sendFile(message.data, message.recipientId, message.filename, message.mimetype, 4, true, null, _push2);
+					message.id = _mokMessage2.id;
+					message.oldId = _mokMessage2.oldId;
+					message.datetimeCreation = Number(_mokMessage2.datetimeCreation * 1000);
+					message.datetimeOrder = Number(_mokMessage2.datetimeOrder * 1000);
 					store.dispatch(_reduxMonkeyChat.actions.addMessage(message, message.recipientId, false));
 					break;
 				}
@@ -1228,11 +1244,11 @@
 					_push3.andData['session-id'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 					_push3.iosData['category'] = (0, _reactMonkeyUi.isConversationGroup)(message.recipientId) ? message.recipientId : store.getState().users.userSession.id;
 
-					var _mokMessage4 = monkey.sendFile(message.data, message.recipientId, 'audioTmp.mp3', message.mimetype, 1, true, { length: Number(message.length) }, _push3);
-					message.id = _mokMessage4.id;
-					message.oldId = _mokMessage4.oldId;
-					message.datetimeCreation = Number(_mokMessage4.datetimeCreation * 1000);
-					message.datetimeOrder = Number(_mokMessage4.datetimeOrder * 1000);
+					var _mokMessage3 = monkey.sendFile(message.data, message.recipientId, 'audioTmp.mp3', message.mimetype, 1, true, { length: Number(message.length) }, _push3);
+					message.id = _mokMessage3.id;
+					message.oldId = _mokMessage3.oldId;
+					message.datetimeCreation = Number(_mokMessage3.datetimeCreation * 1000);
+					message.datetimeOrder = Number(_mokMessage3.datetimeOrder * 1000);
 					store.dispatch(_reduxMonkeyChat.actions.addMessage(message, message.recipientId, false));
 					break;
 				}
@@ -82797,14 +82813,15 @@
 		    expireSession: 0,
 		    debug: false,
 		    stage: false,
-		    autoSave: true
+		    autoSave: true,
+		    isSecure: true
 		  };
 
 		  /*
 		  * Session stuff
 		  */
 
-		  proto.init = function init(appKey, appSecret, userObj, ignoreHook, shouldExpireSession, isStaging, autoSync, autoSave, callback) {
+		  proto.init = function init(appKey, appSecret, userObj, ignoreHook, shouldExpireSession, isStaging, autoSync, autoSave, isSecure, callback) {
 		    if (appKey == null || appSecret == null) {
 		      throw 'Monkey - To initialize Monkey, you must provide your App Id and App Secret';
 		    }
@@ -82818,6 +82835,7 @@
 		    this.appKey = appKey;
 		    this.appSecret = appSecret;
 		    this.autoSync = autoSync;
+		    this.isSecure = isSecure;
 
 		    if (shouldExpireSession) {
 		      this.session.expireSession = 1;
@@ -82857,7 +82875,13 @@
 		    this.session.id = this.session.user.monkeyId;
 
 		    setTimeout(function () {
-		      this.requestSession(callback);
+		      if (this.session.id == null && this.isSecure) {
+		        this.requestSecureSession(callback);
+		      } else if (this.session.id != null && this.isSecure) {
+		        this.requestSecureKey(callback);
+		      } else {
+		        this.requestSession(callback);
+		      }
 		    }.bind(this), 500);
 
 		    return this;
@@ -83001,12 +83025,12 @@
 		  proto.sendText = function sendText(text, recipientMonkeyId, shouldEncrypt, optionalParams, optionalPush) {
 		    var props = {
 		      device: "web",
-		      encr: shouldEncrypt ? 1 : 0,
+		      encr: shouldEncrypt && this.isSecure ? 1 : 0,
 		      encoding: 'utf8'
 		    };
 
 		    //encode to base64 if not encrypted to preserve special characters
-		    if (!shouldEncrypt) {
+		    if (!shouldEncrypt || !this.isSecure) {
 		      text = new Buffer(text).toString('base64');
 		      props.encoding = 'base64';
 		    }
@@ -83019,7 +83043,7 @@
 		    args.id = message.id;
 		    args.oldId = message.oldId;
 
-		    if (message.isEncrypted()) {
+		    if (message.isEncrypted() && this.isSecure) {
 		      message.encryptedText = this.aesEncrypt(text, this.session.id);
 		      args.msg = message.encryptedText;
 		    }
@@ -83157,7 +83181,7 @@
 
 		    var props = {
 		      device: "web",
-		      encr: 1,
+		      encr: this.isSecure ? 1 : 0,
 		      file_type: fileType,
 		      ext: this.mok_getFileExtension(fileName),
 		      filename: fileName,
@@ -83225,7 +83249,7 @@
 		    args.props = message.props;
 		    args.params = message.params;
 
-		    if (message.isEncrypted()) {
+		    if (message.isEncrypted() && this.isSecure) {
 		      fileData = this.aesEncrypt(fileData, this.session.id);
 		    }
 
@@ -83434,6 +83458,12 @@
 		    callback = typeof callback === "function" ? callback : function () {};
 
 		    if (message.isEncrypted()) {
+		      if (!this.isSecure) {
+		        Log.m(this.session.debug, "Monkey - Can't decrypt secure content with insecure user session");
+		        message.text = "Can't decrypt secure content with insecure user session";
+		        return callback(null, message);
+		      }
+
 		      try {
 		        message.text = this._aesDecryptIncomingMessage(message);
 		      } catch (error) {
@@ -83925,6 +83955,14 @@
 		    var message = messages.shift();
 
 		    if (message.isEncrypted() && message.protocolType !== this.enums.MessageType.FILE) {
+		      if (!this.isSecure) {
+		        Log.m(this.session.debug, "Monkey - Can't decrypt secure content with insecure user session");
+		        message.text = "Can't decrypt secure content with insecure user session";
+		        decryptedMessages.push(message);
+		        this._decryptBulkMessages(messages, false, decryptedMessages, onComplete);
+		        return;
+		      }
+
 		      try {
 		        message.text = this._aesDecryptIncomingMessage(message);
 		      } catch (error) {
@@ -83983,7 +84021,12 @@
 		  proto.decryptDownloadedFile = function decryptDownloadedFile(fileData, message, callback) {
 
 		    callback = typeof callback === "function" ? callback : function () {};
+
 		    if (message.isEncrypted()) {
+		      if (!this.isSecure) {
+		        Log.m(this.session.debug, "Monkey - Can't decrypt secure content with insecure user session");
+		        return callback("Can't decrypt secure content with insecure user session");
+		      }
 		      var decryptedData = null;
 		      try {
 		        var currentSize = fileData.length;
@@ -84086,56 +84129,73 @@
 		  * API CONNECTOR
 		  */
 
-		  proto.requestSession = function requestSession(callback) {
-		    this.exchangeKeys = new NodeRSA({ b: 2048 }, { encryptionScheme: 'pkcs1' });
-		    var isSync = false;
-		    var endpoint = '/user/session';
-		    var params = { user_info: this.session.user, monkey_id: this.session.id, expiring: this.session.expireSession };
+		  proto.requestSecureKey = function requestSecureKey(callback) {
+		    var params = {
+		      user_info: this.session.user,
+		      monkey_id: this.session.id,
+		      expiring: this.session.expireSession
+		    };
 
-		    if (this.session.id != null) {
-		      endpoint = '/user/key/sync';
-		      isSync = true;
-		      params.public_key = this.exchangeKeys.exportKey('public');
-		    }
+		    this.exchangeKeys = new NodeRSA({ b: 2048 }, { encryptionScheme: 'pkcs1' });
+		    params.public_key = this.exchangeKeys.exportKey('public');
 
 		    this.status = this.enums.Status.HANDSHAKE;
 		    this._getEmitter().emit(STATUS_CHANGE_EVENT, this.status);
-		    apiconnector.basicRequest('POST', endpoint, params, false, function (err, respObj) {
+		    apiconnector.basicRequest('POST', '/user/key/sync', params, false, function (err, respObj) {
+		      if (err) {
+		        Log.m(this.session.debug, 'Monkey - ' + err);
+
+		        //check if the user doesn't have generated keys
+		        if (err.response.status === 403) {
+		          return this.requestSecureSession(callback);
+		        }
+		        return callback(err);
+		      }
+
+		      Log.m(this.session.debug, 'Monkey - reusing Monkey ID : ' + this.session.id);
+
+		      if (respObj.data.info != null) {
+		        this.session.user = respObj.data.info;
+		      }
+
+		      if (respObj.data.last_time_synced == null) {
+		        respObj.data.last_time_synced = 0;
+		      }
+
+		      var decryptedAesKeys = this.exchangeKeys.decrypt(respObj.data.keys, 'utf8');
+
+		      var myAesKeys = decryptedAesKeys.split(":");
+		      this.session.myKey = myAesKeys[0];
+		      this.session.myIv = myAesKeys[1];
+
+		      this.session.lastTimestamp = Math.trunc(respObj.data.last_time_synced);
+
+		      db.storeUser(this.session.id, this.session);
+
+		      monkeyKeystore.storeData(this.session.id, this.session.myKey + ":" + this.session.myIv, this.session.myKey, this.session.myIv);
+
+		      this.startConnection();
+		      //start sending ping
+		      this.ping();
+
+		      callback(null, this.session.user);
+		    }.bind(this));
+		  };
+
+		  proto.requestSecureSession = function requestSecureSession(callback) {
+		    var params = {
+		      user_info: this.session.user,
+		      monkey_id: this.session.id,
+		      expiring: this.session.expireSession
+		    };
+
+		    this.status = this.enums.Status.HANDSHAKE;
+		    this._getEmitter().emit(STATUS_CHANGE_EVENT, this.status);
+		    apiconnector.basicRequest('POST', '/user/session', params, false, function (err, respObj) {
 
 		      if (err) {
 		        Log.m(this.session.debug, 'Monkey - ' + err);
 		        return callback(err);
-		      }
-
-		      if (isSync) {
-		        Log.m(this.session.debug, 'Monkey - reusing Monkey ID : ' + this.session.id);
-
-		        if (respObj.data.info != null) {
-		          this.session.user = respObj.data.info;
-		        }
-
-		        if (respObj.data.last_time_synced == null) {
-		          respObj.data.last_time_synced = 0;
-		        }
-
-		        var decryptedAesKeys = this.exchangeKeys.decrypt(respObj.data.keys, 'utf8');
-
-		        var myAesKeys = decryptedAesKeys.split(":");
-		        this.session.myKey = myAesKeys[0];
-		        this.session.myIv = myAesKeys[1];
-
-		        this.session.lastTimestamp = Math.trunc(respObj.data.last_time_synced);
-
-		        db.storeUser(this.session.id, this.session);
-
-		        monkeyKeystore.storeData(this.session.id, this.session.myKey + ":" + this.session.myIv, this.session.myKey, this.session.myIv);
-
-		        this.startConnection();
-		        //start sending ping
-		        this.ping();
-
-		        callback(null, this.session.user);
-		        return;
 		      }
 
 		      if (respObj.data.monkeyId == null) {
@@ -84178,7 +84238,38 @@
 		        callback(null, this.session.user);
 		      }.bind(this));
 		    }.bind(this));
-		  }; /// end of function requestSession
+		  }; /// end of function requestSecureSession
+
+		  proto.requestSession = function requestSession(callback) {
+
+		    var params = {
+		      userInfo: this.session.user,
+		      monkeyId: this.session.id,
+		      expiring: this.session.expireSession
+		    };
+
+		    this.status = this.enums.Status.HANDSHAKE;
+		    this._getEmitter().emit(STATUS_CHANGE_EVENT, this.status);
+		    apiconnector.basicRequest('POST', '/user', params, false, function (err, respObj) {
+
+		      if (err) {
+		        Log.m(this.session.debug, 'Monkey - ' + err);
+		        return callback(err);
+		      }
+
+		      this.session.id = respObj.data.monkeyId;
+		      if (respObj.data.info != null) {
+		        this.session.user = respObj.data.info;
+		      }
+
+		      db.storeUser(respObj.data.monkeyId, this.session);
+
+		      this.startConnection();
+		      //start sending ping
+		      this.ping();
+		      callback(null, this.session.user);
+		    }.bind(this));
+		  }; // end of function requestExistingSecureSession
 
 		  proto.subscribe = function subscribe(channel, callback) {
 
@@ -84242,6 +84333,11 @@
 		      var gotError = false;
 
 		      if (message.isEncrypted() && message.protocolType !== this.enums.MessageType.FILE) {
+		        if (!this.isSecure) {
+		          Log.m(this.session.debug, "Monkey - Can't decrypt secure content with insecure user session");
+		          message.text = "Can't decrypt secure content with insecure user session";
+		          return callback(null);
+		        }
 		        try {
 		          message.text = this._aesDecryptIncomingMessage(message);
 		          if (message.text == null || message.text === "") {

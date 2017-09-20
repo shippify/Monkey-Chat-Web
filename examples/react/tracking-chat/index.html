@@ -50,13 +50,25 @@
             deliveryId:"t-shieam-15837"
           }
 
-          initChat(clientUser, ()=>{
-            console.log("Chat was init")
+          /*
+          let clientUser =
+          {
+            name:'Kevin Bravo',
+            monkeyId:'j51l9dtt0dekpze5p3bp2a0e9rylo6flxr',
+            type: 'client',
+            email : "kcampuzanocastillo@gmail.com",
+            deliveryId:"t-shieam-15873"
+          }
+          */
 
-            createConversation(shpperMkId, {
+          initChat(clientUser,
+            {
+              monkeyId:shpperMkId,
               name:'Shipper Kevin Campuzano',
               courierId: 6022
-            })
+            }
+          , ()=>{
+            console.log("Chat was init")
           });
 
 

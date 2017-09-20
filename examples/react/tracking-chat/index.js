@@ -37,7 +37,9 @@ var timeout = undefined;
 
 var unreadMessagesByConversation = { };
 
-window.initChat = function(user, callback){
+let userChatWith ={}
+
+window.initChat = function(user,userChatWithLocal, callback){
 	monkey.close();
 	monkey.init(vars.MONKEY_APP_ID, vars.MONKEY_APP_KEY, user,null,false, vars.MONKEY_DEBUG_MODE, false,true, false,function(error,success){
 
@@ -50,6 +52,9 @@ window.initChat = function(user, callback){
 		delete updatedMetadata.monkeyId
 
 		monkey.updateUser(updatedMetadata, function(err, result){
+
+			userChatWith = userChatWithLocal;
+
 			callback()
 		})
 	});
@@ -608,6 +613,10 @@ monkey.on('Connect', function(event) {
 	if(conversationSelectedId){
 		monkey.openConversation(conversationSelectedId);
 	}
+
+	console.log("Now i am creating conversation")
+	createConversation(userChatWith.monkeyId,userChatWith)
+
 });
 
 // -------------- ON DISCONNECT --------------- //
@@ -722,7 +731,7 @@ monkey.on('Acknowledge', function(data){
 
 // ------- ON CONVERSATION OPEN RESPONSE ------- //
 monkey.on('ConversationStatusChange', function(data){
-
+	console.log("Conversation changed ",data)
 	let conversationId = data.senderId;
 	let targetConversation = store.getState().conversations[conversationId]
 	if(!targetConversation)
@@ -781,8 +790,15 @@ monkey.on('ConversationOpen', function(data){
 	let conversationId = data.senderId;
 	if(!store.getState().conversations[conversationId])
 		return;
-
+	console.log("OPEN CONVERSSTION ???? ",data)
 	store.dispatch(actions.updateMessagesStatus(52, conversationId, false));
+
+	let conversation = {
+			id: conversationId,
+			online: 1
+		}
+	store.dispatch(actions.updateConversationStatus(conversation));
+
 });
 
 
@@ -1002,9 +1018,13 @@ function createConversation(conversationId, payload, callback){
 		if(callback){callback()}
 
 	}else{
-		store.dispatch(actions.addConversation(defineConversation(conversationId, mokMessage, store.getState().users[conversationId].name, store.getState().users[conversationId].urlAvatar)));
-		if(callback){callback()}
+		// cnversation exists
+		console.log("conversation exists --- ",store.getState().users[conversationId])
+		// store.dispatch(actions.addConversation(defineConversation(conversationId, null, store.getState().users[conversationId].name, store.getState().users[conversationId].urlAvatar)));
+		// if(callback){callback()}
 	}
+
+	monkey.openConversation(conversationId);
 }
 
 function defineConversation(conversationId, mokMessage, name, urlAvatar){
